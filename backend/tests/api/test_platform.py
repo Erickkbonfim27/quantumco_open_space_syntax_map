@@ -7,7 +7,7 @@ from quantumco.entrypoints.api.app import create_app
 from quantumco.road_network.application.queries import GetCurrentNetwork
 from quantumco.syntax_analysis.application.queries import GetScenario, GetSyntaxMap
 
-from ..fakes import platform
+from ..fakes import platform, territory
 from ..support import METHODOLOGY_V1
 from .test_api import NetworkReader, ScenarioReader, SyntaxReader
 
@@ -24,6 +24,7 @@ def client() -> TestClient:
         syntax_query=GetSyntaxMap(SyntaxReader(None)),
         scenarios=GetScenario(ScenarioReader()),
         platform=platform(),
+        territory=territory(),
     )
     return TestClient(app)
 
@@ -120,3 +121,16 @@ def test_polygon_stats_is_public() -> None:
     r = c.post("/api/v1/syntax/polygon-stats", json={"coordinates": RING})
     assert r.status_code == 200
     assert r.json()["territory"]["vertices"] == 4
+
+
+def test_territory_profile_is_public() -> None:
+    c = client()
+    r = c.post("/api/v1/territory/polygon-profile", json={"coordinates": RING})
+    assert r.status_code == 200
+    body = r.json()
+    # metade dos domicílios do setor está dentro → metade da população (não 90% pela área)
+    assert body["population"]["people"] == 250
+    assert body["risk"]["sectors"] == 1
+    assert body["health"]["public_units"] == ["Hospital Azambuja"]
+    assert body["layers"][0]["layer"] == "setores"
+    assert c.get("/api/v1/territory/layers").status_code == 200

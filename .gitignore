@@ -27,3 +27,4 @@ data/
 
 frontend/dist/
 frontend/*.tsbuildinfo
+backend/.cache/

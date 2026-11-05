@@ -9,7 +9,12 @@ import { LayerStack } from "../features/workspace/LayerStack";
 import { LoadingScreen } from "../features/workspace/LoadingScreen";
 import { type MapFlags, PolygonMap, type PolygonMapHandle } from "../features/workspace/PolygonMap";
 import { api, ApiError } from "../lib/api";
-import type { PolygonCollection, PolygonStats, Workspace } from "../lib/platformTypes";
+import type {
+  PolygonCollection,
+  PolygonStats,
+  TerritoryProfile,
+  Workspace,
+} from "../lib/platformTypes";
 import { useSession } from "../lib/session";
 import type {
   AnalysisManifest,
@@ -56,6 +61,8 @@ export function WorkspaceMap() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [data, setData] = useState<SnapshotData | null>(null);
   const [stats, setStats] = useState<Record<string, PolygonStats>>({});
+  // perfil territorial: só do polígono aberto (é mais pesado), guardado por id
+  const [profiles, setProfiles] = useState<Record<string, TerritoryProfile | "erro">>({});
   const [step, setStep] = useState(0);
   const [error, setError] = useState("");
   const [measure, setMeasure] = useState<Measure>("nain");
@@ -83,6 +90,18 @@ export function WorkspaceMap() {
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    const polygon = workspace?.features.find((f) => f.properties.id === selectedId);
+    if (!polygon || profiles[polygon.properties.id]) return;
+    const key = polygon.properties.id;
+    api<TerritoryProfile>("territory/polygon-profile", {
+      method: "POST",
+      json: { coordinates: polygon.geometry.coordinates[0] },
+    })
+      .then((result) => setProfiles((current) => ({ ...current, [key]: result })))
+      .catch(() => setProfiles((current) => ({ ...current, [key]: "erro" })));
+  }, [selectedId, workspace, profiles]);
 
   // carga real, com progresso por etapa
   useEffect(() => {
@@ -161,7 +180,20 @@ export function WorkspaceMap() {
   const exportFeatures = (only?: string) => {
     const features = polygons.features
       .filter((f) => !only || f.properties.id === only)
-      .map((f) => ({ ...f, properties: { ...f.properties, camadas: stats[f.properties.id] ?? null } }));
+      .map((f) => {
+        const profile = profiles[f.properties.id];
+        const territory =
+          profile && profile !== "erro"
+            ? { ...profile, features: undefined } // sem a amostra de pontos (só para desenho)
+            : null;
+        return {
+          ...f,
+          properties: {
+            ...f.properties,
+            camadas: { ...(stats[f.properties.id] ?? {}), territorio: territory },
+          },
+        };
+      });
     download("quantumco-poligonos.geojson", { type: "FeatureCollection", features });
   };
 
@@ -449,6 +481,7 @@ export function WorkspaceMap() {
             key={selected.properties.id}
             polygon={selected}
             stats={stats[selected.properties.id]}
+            profile={profiles[selected.properties.id]}
             measure={measure}
             network={data.network}
             onExport={() => exportFeatures(selected.properties.id)}

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import secrets
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from typing import Any
 from uuid import UUID
@@ -15,6 +15,9 @@ from quantumco.identity.domain.user import User
 from quantumco.scenarios.application.workspaces import Workspaces
 from quantumco.scenarios.domain.workspace import Workspace
 from quantumco.syntax_analysis.application.queries import GetPolygonStats
+from quantumco.territory.application.ports import NamedPlace, PlaceCount, PolygonOverlaps
+from quantumco.territory.application.queries import GetPolygonProfile
+from quantumco.territory.domain.profile import TractOverlap, ZoneOverlap
 
 from .support import FixedClock
 
@@ -95,3 +98,40 @@ def platform() -> tuple[Authentication, Workspaces, GetPolygonStats]:
         Workspaces(repository=WorkspaceStore(), clock=clock),
         GetPolygonStats(PolygonStats()),
     )
+
+
+class TerritoryReader:
+    """Um setor com metade dos domicílios dentro, um setor de risco e uma suscetibilidade."""
+
+    def __init__(self, empty: bool = False) -> None:
+        self._empty = empty
+
+    def layers(self) -> list[Mapping[str, Any]]:
+        return [] if self._empty else [{"layer": "setores", "rows": 1, "source": "IBGE"}]
+
+    def overlaps(self, ring: Sequence[tuple[float, float]]) -> PolygonOverlaps | None:
+        if self._empty:
+            return None
+        tract = TractOverlap(
+            code="420290905000001",
+            attrs={"people": 500, "households": 200, "dwellings": 220, "heads": 200,
+                   "income_mean": 4000.0, "sc_base": 200, "sc_sidewalk": 150},
+            area_share=0.9, addresses_in=100, addresses_all=200,
+        )  # fmt: skip
+        risk = ZoneOverlap("risco", "Alto", "Deslizamento", {"people": 40, "households": 10},
+                           area_in_m2=5_000, area_total_m2=10_000)  # fmt: skip
+        flood = ZoneOverlap("suscet_inundacao", "Alta", "Inundação", {}, 250_000, 900_000)
+        return PolygonOverlaps(
+            area_m2=1_000_000,
+            tracts=[tract],
+            zones=[risk, flood],
+            place_counts=[
+                PlaceCount("cnefe", "domicilio", 100),
+                PlaceCount("cnes", "hospital", 1, 1),
+            ],
+            named_places=[NamedPlace("cnes", "hospital", "Hospital Azambuja")],
+        )
+
+
+def territory(empty: bool = False) -> GetPolygonProfile:
+    return GetPolygonProfile(TerritoryReader(empty))

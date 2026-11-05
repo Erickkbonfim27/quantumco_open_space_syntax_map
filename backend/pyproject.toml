@@ -88,6 +88,16 @@ modules = [
     "quantumco.scenarios",
     "quantumco.location_report",
     "quantumco.identity",
+    "quantumco.territory",
+]
+
+[[tool.importlinter.contracts]]
+name = "Camadas territoriais: camadas hexagonais"
+type = "layers"
+layers = [
+    "quantumco.territory.infrastructure",
+    "quantumco.territory.application",
+    "quantumco.territory.domain",
 ]
 
 [[tool.importlinter.contracts]]
@@ -137,6 +147,7 @@ forbidden_modules = [
     "quantumco.scenarios",
     "quantumco.location_report",
     "quantumco.identity",
+    "quantumco.territory",
     "quantumco.entrypoints",
     "quantumco.bootstrap",
 ]
@@ -154,6 +165,8 @@ source_modules = [
     "quantumco.syntax_analysis.application",
     "quantumco.scenarios.domain",
     "quantumco.scenarios.application",
+    "quantumco.territory.domain",
+    "quantumco.territory.application",
 ]
 forbidden_modules = [
     "geopandas",

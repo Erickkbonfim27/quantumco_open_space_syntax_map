@@ -1,4 +1,10 @@
-import type { Feature, FeatureCollection, Polygon } from "geojson";
+import type {
+  Feature,
+  FeatureCollection,
+  GeometryCollection,
+  MultiPolygon,
+  Polygon,
+} from "geojson";
 
 export interface User {
   id: string;
@@ -59,3 +65,55 @@ export const MEASURE_SHORT: Record<WorkspaceMeasure, string> = {
   nain: "Integração",
   nach: "Escolha",
 };
+
+/** Perfil territorial (POST /territory/polygon-profile): IBGE, CNEFE, SGB e CNES. */
+export interface TerritoryProfile {
+  population: {
+    people: number;
+    households: number;
+    density_km2: number | null;
+    unoccupied_share: number | null;
+    income_mean: number | null;
+    income_heads: number;
+    income_tract_range: [number, number] | null;
+    tracts: number;
+    tracts_income_suppressed: number;
+    weighting: ("domicilios" | "area")[];
+  };
+  streetscape: Record<
+    | "paved"
+    | "drain"
+    | "lighting"
+    | "sidewalk"
+    | "ramp"
+    | "obstacle"
+    | "trees"
+    | "trees_5"
+    | "bus_stop"
+    | "bike"
+    | "heavy_traffic"
+    | "households_surveyed",
+    number
+  > | null;
+  risk: {
+    sectors: number;
+    worst: string | null;
+    area_km2: Record<string, number>;
+    processes_km2: Record<string, number>;
+    people: number;
+    households: number;
+  };
+  susceptibility: Record<string, Record<string, number>>;
+  addresses: {
+    total: number;
+    by_kind: Record<string, number>;
+    non_residential_share: number | null;
+    schools: string[];
+  };
+  health: { total: number; sus: number; by_kind: Record<string, number>; public_units: string[] };
+  features: {
+    points: [number, number, string][];
+    zones: { layer: string; category: string; geometry: Polygon | MultiPolygon | GeometryCollection }[];
+  };
+  layers: { layer: string; source: string; license: string; rows: number; fetched_at: string }[];
+}

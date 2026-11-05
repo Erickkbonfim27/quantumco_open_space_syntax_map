@@ -35,3 +35,29 @@ Vizzion já integrava (ver o portfólio, "Plataforma de dados da Vizzion").
 
 - Risco geológico: setorização de risco do SGB-CPRM.
 - Inundação (relevante no vale do Itajaí-Mirim): CEMADEN, S2iD/Defesa Civil, ANA.
+
+## Camadas importadas (fase A, 2026-11-05)
+
+`uv run quantumco territory import` (schema `territory` no PostGIS; `--only <fonte>` para uma só).
+O perfil de cada polígono sai em `POST /api/v1/territory/polygon-profile`.
+
+| Camada no painel | Fonte | Recorte no polígono | Registros |
+|---|---|---|---|
+| N3 População e renda | IBGE Censo 2022: malha de setores com agregados (V0001, V0003, V0007) + renda do responsável (V06001, V06004, V06006) | **dasimétrico**: parcela dos domicílios do CNEFE do setor que cai no polígono (fração de área só em setor sem domicílio) | 206 setores (141.385 hab.) |
+| N4 Entorno urbano | IBGE Censo 2022: entorno dos domicílios (V05000–V05034) | idem; % dos domicílios em faces com calçada, iluminação, árvores, rampa, ponto de ônibus… | 186 setores pesquisados |
+| N5 Equipamentos e uso | IBGE CNEFE 2022 (espécie do endereço, coordenada nível ≤ 3) + CNES (Ministério da Saúde) | contagem de pontos | 65.659 endereços · 506 estabelecimentos de saúde |
+| N6 Risco | SGB: setores de risco geológico (2018–19) e cartas de suscetibilidade IPT/SGB (2013) | área recortada; pessoas em risco proporcionais à área do setor | 199 setores · 1.820 polígonos de suscetibilidade |
+
+Cuidados: o CNES traz telefone e e-mail de consultórios; guardamos só nome, tipo, SUS e coordenada.
+O CNEFE mostra obras "em construção" **em 2022**, não hoje.
+
+## Próximas fases
+
+- **B. Empresas e obras**: CNPJ da Receita (mensal; Brusque = município 8055 da Receita) e CNO
+  (Cadastro Nacional de Obras), localizados pelo CEP + número cruzados com o CNEFE. Licença dos
+  arquivos da Receita não confirmada; MEI traz nome e endereço do dono → publicar só agregado.
+- **C. Relevo e prédios**: MDT 1 m do SIGSC (só estatísticas derivadas) e Google Open Buildings v3
+  (tile S2 `94d`, CC BY 4.0 ou ODbL) / 2.5D Temporal (altura, 2016–2023).
+- Descartados: RAIS e CAGED (só município; a RAIS de estabelecimentos tem CEP, sem endereço),
+  Google Places (os termos proíbem guardar, usar em mapa que não seja do Google e fazer
+  ponto-em-polígono), luz noturna VIIRS (500 m, grossa demais), GTFS (Brusque não tem).

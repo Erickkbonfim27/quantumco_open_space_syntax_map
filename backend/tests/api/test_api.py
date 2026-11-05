@@ -9,7 +9,7 @@ from quantumco.entrypoints.api.app import create_app
 from quantumco.road_network.application.queries import GetCurrentNetwork, PublishedNetwork
 from quantumco.syntax_analysis.application.queries import GetScenario, GetSyntaxMap, SyntaxMap
 
-from ..fakes import platform
+from ..fakes import platform, territory
 from ..support import METHODOLOGY_V1
 
 LINKS = {
@@ -67,6 +67,7 @@ def client(network: PublishedNetwork | None, syntax: SyntaxMap | None) -> TestCl
         syntax_query=GetSyntaxMap(SyntaxReader(syntax)),
         scenarios=GetScenario(ScenarioReader()),
         platform=platform(),
+        territory=territory(),
     )
     return TestClient(app)
 

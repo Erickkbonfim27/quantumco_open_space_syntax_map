@@ -17,7 +17,9 @@ from quantumco.bootstrap.platform import build_platform
 from quantumco.bootstrap.road_network import current_network_query
 from quantumco.bootstrap.settings import Settings, load_env_file
 from quantumco.bootstrap.syntax_analysis import scenario_query, syntax_map_query
+from quantumco.bootstrap.territory import territory_profile_query
 from quantumco.entrypoints.api.platform_routes import platform_router
+from quantumco.entrypoints.api.territory_routes import territory_router
 from quantumco.identity.application.auth import Authentication
 from quantumco.road_network.application.queries import (
     GetCurrentNetwork,
@@ -32,6 +34,7 @@ from quantumco.syntax_analysis.application.queries import (
     NoAnalysisError,
     NoScenarioError,
 )
+from quantumco.territory.application.queries import GetPolygonProfile
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +49,7 @@ def create_app(
     syntax_query: GetSyntaxMap | None = None,
     scenarios: GetScenario | None = None,
     platform: tuple[Authentication, Workspaces, GetPolygonStats] | None = None,
+    territory: GetPolygonProfile | None = None,
 ) -> FastAPI:
     if settings is None:
         load_env_file()
@@ -104,6 +108,9 @@ def create_app(
     app.include_router(
         platform_router(auth, workspaces, polygon_stats, secure=settings.cookie_secure),
         prefix="/api/v1",
+    )
+    app.include_router(
+        territory_router(territory or territory_profile_query(settings)), prefix="/api/v1"
     )
     return app
 

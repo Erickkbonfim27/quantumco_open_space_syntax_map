@@ -35,6 +35,7 @@ cd backend
 uv sync
 uv run quantumco coldstart             # ~10 min: Overpass (1–3 min) + cityseer (~8 min)
 # ou em partes: uv run quantumco snapshot build && uv run quantumco analysis run
+uv run quantumco territory import       # ~1 min: camadas do IBGE, SGB e CNES (perfil dos polígonos)
 
 # 2. API  →  http://localhost:8000  (docs em /docs)
 uv run quantumco serve --reload

@@ -41,6 +41,7 @@ class Settings:
     cors_origins: tuple[str, ...]
     database_url: str
     cookie_secure: bool
+    cache_dir: Path = BACKEND_ROOT / ".cache"
 
     def require_database(self) -> str:
         if not self.database_url:
@@ -63,6 +64,7 @@ class Settings:
             owner_email=source.get("OWNER_EMAIL", "").strip(),
             database_url=source.get("QC_DATABASE_URL", "").strip(),
             cookie_secure=source.get("QC_COOKIE_SECURE", "true").strip().lower() != "false",
+            cache_dir=_path(source.get("QC_CACHE_DIR", ".cache")),
             cors_origins=tuple(
                 origin.strip()
                 for origin in source.get("QC_CORS_ORIGINS", "").split(",")

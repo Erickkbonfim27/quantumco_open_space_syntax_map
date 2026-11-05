@@ -10,6 +10,7 @@ from quantumco.bootstrap.identity import build_mailer, sender_from
 from quantumco.bootstrap.road_network import build_snapshot_use_case
 from quantumco.bootstrap.settings import Settings, load_env_file
 from quantumco.bootstrap.syntax_analysis import run_analysis_use_case, run_scenario_use_case
+from quantumco.bootstrap.territory import import_territory_use_case, territory_profile_query
 from quantumco.identity.domain.email import EmailAddress, EmailMessage
 from quantumco.identity.infrastructure.resend_mailer import ResendMailer, RestrictedApiKeyError
 from quantumco.platform.postgres import migrate
@@ -33,6 +34,10 @@ analysis_app = typer.Typer(
 app.add_typer(analysis_app, name="analysis")
 mail_app = typer.Typer(help="E-mail transacional (Resend)", no_args_is_help=True)
 app.add_typer(mail_app, name="mail")
+territory_app = typer.Typer(
+    help="Camadas territoriais: IBGE (setores, CNEFE), SGB (risco) e CNES", no_args_is_help=True
+)
+app.add_typer(territory_app, name="territory")
 
 _LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
 
@@ -117,6 +122,30 @@ def analysis_run(ctx: typer.Context) -> None:
     )
     if manifest["preliminary"]:
         typer.echo("  PRELIMINAR: equivalência com o depthmapX ainda não validada no CI")
+
+
+@territory_app.command("import")
+def territory_import(
+    ctx: typer.Context,
+    only: Annotated[
+        list[str] | None,
+        typer.Option("--only", help="só estas fontes: ibge-setores, ibge-cnefe, sgb-risco, cnes"),
+    ] = None,
+) -> None:
+    """Baixa as fontes abertas e substitui as camadas territoriais no PostGIS."""
+    settings: Settings = ctx.obj
+    _migrate_if_configured(settings)
+    for report in import_territory_use_case(settings)(only):
+        typer.echo(f"  {report.layer:<28} {report.rows:>7} registros  ({report.seconds}s)")
+
+
+@territory_app.command("layers")
+def territory_layers(ctx: typer.Context) -> None:
+    """Lista as camadas territoriais importadas (fonte, data, quantidade)."""
+    settings: Settings = ctx.obj
+    for layer in territory_profile_query(settings).layers():
+        when = layer["fetched_at"][:16]
+        typer.echo(f"  {layer['layer']:<28} {layer['rows']:>7}  {when}  {layer['source']}")
 
 
 @app.command("coldstart")
