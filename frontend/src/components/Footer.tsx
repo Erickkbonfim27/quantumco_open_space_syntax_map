@@ -14,6 +14,12 @@ export function Footer() {
           AGPL-3.0
         </a>
       </p>
+      <p className="signature">
+        Desenvolvido por{" "}
+        <a href="https://erickkbonfim.com.br" target="_blank" rel="noreferrer">
+          Erick K. Bonfim
+        </a>
+      </p>
     </footer>
   );
 }

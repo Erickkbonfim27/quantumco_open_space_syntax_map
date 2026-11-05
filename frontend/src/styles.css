@@ -481,6 +481,22 @@ strong {
   margin: 0;
 }
 
+.footer .signature {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: rgba(43, 212, 107, 0.75);
+}
+
+.footer .signature a {
+  color: var(--beam-green);
+}
+
+.footer .signature a:hover {
+  color: var(--beam-blue);
+}
+
 /* ------------------------------------------------------------------ controles do MapLibre */
 
 .maplibregl-ctrl-top-right {
