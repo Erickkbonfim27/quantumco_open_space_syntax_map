@@ -22,6 +22,13 @@ CNEFE_KINDS = (
 )
 NAMED_LIMIT = 12
 
+# Camadas que o mapa público pode ligar (cidade inteira).
+MAP_LAYERS = ("risco", "suscet_inundacao", "saude", "escolas")
+
+
+class UnknownLayerError(LookupError):
+    pass
+
 
 class GetPolygonProfile:
     def __init__(self, reader: TerritoryReader) -> None:
@@ -29,6 +36,11 @@ class GetPolygonProfile:
 
     def layers(self) -> Sequence[Mapping[str, Any]]:
         return self._reader.layers()
+
+    def map_layer(self, name: str) -> bytes | None:
+        if name not in MAP_LAYERS:
+            raise UnknownLayerError(f"camada desconhecida: {name} (há: {', '.join(MAP_LAYERS)})")
+        return self._reader.map_layer(name)
 
     def __call__(self, ring: Ring) -> dict[str, Any] | None:
         found = self._reader.overlaps(ring)

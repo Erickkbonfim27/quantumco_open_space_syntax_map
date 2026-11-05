@@ -134,3 +134,11 @@ def test_territory_profile_is_public() -> None:
     assert body["health"]["public_units"] == ["Hospital Azambuja"]
     assert body["layers"][0]["layer"] == "setores"
     assert c.get("/api/v1/territory/layers").status_code == 200
+
+
+def test_territory_map_layers() -> None:
+    c = client()
+    r = c.get("/api/v1/territory/map/risco")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/geo+json")
+    assert c.get("/api/v1/territory/map/lotes").status_code == 404

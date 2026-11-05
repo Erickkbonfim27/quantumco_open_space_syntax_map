@@ -20,7 +20,7 @@ export function ReleaseInfo({ manifest, analysis }: ReleaseInfoProps) {
         </div>
         <div>
           <span className="stat-value">{formatKm(report.length_kept_m)}</span>
-          <span className="stat-label">de ruas</span>
+          <span className="stat-label">de ruas (com o entorno)</span>
         </div>
       </div>
       <dl className="facts">

@@ -19,13 +19,32 @@ def dsn(url: str) -> str:
     return url.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
+# Conexões longas atravessam NAT/firewall (dev local → VPS) que derrubam TCP ocioso em silêncio:
+# sem isto, o pool entrega uma conexão morta e a consulta trava até o timeout do sistema.
+_CONNECTION_KWARGS: dict[str, object] = {
+    "connect_timeout": 10,
+    "keepalives": 1,
+    "keepalives_idle": 30,
+    "keepalives_interval": 10,
+    "keepalives_count": 3,
+    "tcp_user_timeout": 30_000,  # ms sem ACK → a conexão é dada como perdida
+}
+
+
 def connect(url: str) -> psycopg.Connection[tuple[object, ...]]:
-    return psycopg.connect(dsn(url), connect_timeout=10)
+    return psycopg.connect(dsn(url), **_CONNECTION_KWARGS)  # type: ignore[arg-type]
 
 
 def pool(url: str, max_size: int = 4) -> ConnectionPool:
     return ConnectionPool(
-        dsn(url), min_size=1, max_size=max_size, open=True, kwargs={"connect_timeout": 10}
+        dsn(url),
+        min_size=1,
+        max_size=max_size,
+        open=True,
+        kwargs=_CONNECTION_KWARGS,
+        check=ConnectionPool.check_connection,  # testa antes de entregar; troca se morreu
+        max_idle=120,  # fecha conexões paradas há mais de 2 min
+        timeout=15,
     )
 
 

@@ -226,7 +226,7 @@ function territoryCards(profile: Profile): Record<"risco" | "equip" | "entorno" 
   return {
     risco: {
       metrics: [
-        [r.sectors ? `${r.sectors} · ${r.worst ?? ""}` : "nenhum", "setores (SGB)"],
+        [String(r.sectors), r.worst ? `setores · ${r.worst.toLowerCase()}` : "setores (SGB)"],
         [r.sectors ? `~${r.people.toLocaleString("pt-BR")}` : "0", "pessoas (est.)"],
         [pct(floodAlta), "inundação alta"],
       ],

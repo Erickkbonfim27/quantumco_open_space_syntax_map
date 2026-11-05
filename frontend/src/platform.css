@@ -1367,6 +1367,86 @@
   line-height: 1.45;
 }
 
+/* ------------------------------------------------------------------ mapa público no layout da Plataforma */
+
+.ws-brand {
+  display: flex;
+  color: var(--white);
+}
+
+.ws-auth {
+  display: flex;
+  gap: 8px;
+}
+
+.ws-section-first {
+  margin-top: 16px;
+}
+
+.ws-sublabel {
+  margin-top: 6px;
+}
+
+/* seções antigas do painel (trecho, cenário, ficha da rede) dentro da lateral */
+.ws-embed .panel-section {
+  padding: 18px 20px;
+  border-bottom: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.ws-embed .panel-section.footer {
+  margin-top: 0;
+}
+
+.toggle-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-left: -4px;
+  border-radius: 3px;
+}
+
+.toggle-source {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.ws-side .segmented-5 button {
+  white-space: nowrap;
+  letter-spacing: -0.03em;
+}
+
+.qc-popup .maplibregl-popup-content {
+  padding: 10px 12px;
+  border: 1px solid rgba(244, 246, 245, 0.14);
+  border-radius: 12px;
+  background: rgba(12, 15, 16, 0.94);
+  color: var(--white);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 300;
+  line-height: 1.4;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.qc-popup .maplibregl-popup-content strong {
+  font-weight: 400;
+}
+
+.qc-popup .maplibregl-popup-content span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.qc-popup .maplibregl-popup-tip {
+  display: none;
+}
+
+.ws-public .ws-map .maplibregl-ctrl-bottom-right {
+  right: 0;
+  bottom: 0;
+}
+
 @media (max-width: 900px) {
   .ws {
     grid-template-columns: 1fr;
@@ -1398,5 +1478,14 @@
     padding: 16px;
     gap: 12px;
     overflow-y: auto;
+  }
+  .ws-bar {
+    gap: 10px;
+  }
+  .ws-measure {
+    width: 170px;
+  }
+  .ws-auth .pill-green {
+    display: none;
   }
 }

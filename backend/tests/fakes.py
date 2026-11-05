@@ -109,6 +109,9 @@ class TerritoryReader:
     def layers(self) -> list[Mapping[str, Any]]:
         return [] if self._empty else [{"layer": "setores", "rows": 1, "source": "IBGE"}]
 
+    def map_layer(self, name: str) -> bytes | None:
+        return None if self._empty else b'{"type":"FeatureCollection","features":[]}'
+
     def overlaps(self, ring: Sequence[tuple[float, float]]) -> PolygonOverlaps | None:
         if self._empty:
             return None

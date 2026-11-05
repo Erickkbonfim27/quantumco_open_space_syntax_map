@@ -207,9 +207,63 @@ where z.layer in ('risco', 'suscet_inundacao')
 """
 
 
+_FC = (
+    "select json_build_object('type', 'FeatureCollection', 'features', "
+    "coalesce(json_agg(f.feature), '[]'))::text from ({}) f"
+)
+_FEATURE = (
+    "json_build_object('type', 'Feature', 'geometry', ST_AsGeoJSON({geom}, 6)::json, "
+    "'properties', {props}) as feature"
+)
+_MAP_LAYERS = {
+    "risco": _FEATURE.format(
+        geom="ST_Transform(geom, 4326)",
+        props="json_build_object('categoria', category, 'processo', process, "
+        "'pessoas', attrs -> 'people', 'local', attrs -> 'place', 'data', attrs -> 'date')",
+    )
+    + " from territory.zones where layer = 'risco'",
+    "suscet_inundacao": _FEATURE.format(
+        geom="ST_Transform(ST_SimplifyPreserveTopology(geom, 3), 4326)",
+        props="json_build_object('categoria', category)",
+    )
+    + " from territory.zones where layer = 'suscet_inundacao' and category in ('Alta', 'Média')",
+    "saude": _FEATURE.format(
+        geom="ST_Transform(geom, 4326)",
+        props="json_build_object('tipo', kind, 'nome', name, 'sus', attrs -> 'sus')",
+    )
+    + " from territory.places where layer = 'cnes'",
+    "escolas": _FEATURE.format(
+        geom="ST_Transform(geom, 4326)", props="json_build_object('nome', name)"
+    )
+    + " from territory.places where layer = 'cnefe' and kind = 'ensino'",
+}
+
+
 class PostgisTerritoryReader:
     def __init__(self, pool: ConnectionPool) -> None:
         self._pool = pool
+        # as camadas só mudam no `territory import`: cache por data de importação
+        self._cache: dict[str, tuple[str, bytes]] = {}
+
+    def map_layer(self, name: str) -> bytes | None:
+        source = {"saude": "cnes", "escolas": "cnefe"}.get(name, name)
+        with self._pool.connection() as conn:
+            try:
+                row = conn.execute(
+                    "select fetched_at::text from territory.layers where layer = %s", (source,)
+                ).fetchone()
+            except errors.UndefinedTable:
+                return None
+            if row is None:
+                return None
+            cached = self._cache.get(name)
+            if cached and cached[0] == row[0]:
+                return cached[1]
+            (text,) = conn.execute(_FC.format(f"select {_MAP_LAYERS[name]}")).fetchone()  # type: ignore[misc]
+        data = str(text).encode()
+        self._cache[name] = (row[0], data)
+        log.info("camada %s para o mapa: %.0f kB", name, len(data) / 1024)
+        return data
 
     def layers(self) -> Sequence[Mapping[str, Any]]:
         return _layers(self._pool)
