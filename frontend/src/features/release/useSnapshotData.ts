@@ -4,6 +4,7 @@ import { config } from "../../config";
 import type {
   AnalysisManifest,
   Manifest,
+  ScenarioManifest,
   MunicipalityCollection,
   NetworkCollection,
   SnapshotData,
@@ -50,18 +51,40 @@ async function loadLinks(
   }
 }
 
+export const scenarioFromUrl = (): string | null =>
+  new URLSearchParams(window.location.search).get("cenario");
+
+async function loadScenario(
+  name: string,
+  signal: AbortSignal,
+): Promise<{ network: NetworkCollection; scenario: ScenarioManifest }> {
+  const path = `scenarios/${encodeURIComponent(name)}`;
+  const [scenario, network] = await Promise.all([
+    getJson<ScenarioManifest>(`${path}/manifest`, signal),
+    getJson<NetworkCollection>(`${path}/links`, signal),
+  ]);
+  return { network, scenario };
+}
+
 export function useSnapshotData(): SnapshotState {
   const [state, setState] = useState<SnapshotState>({ status: "loading" });
 
   useEffect(() => {
     const controller = new AbortController();
+    const scenarioName = scenarioFromUrl();
     Promise.all([
       getJson<Manifest>("network/manifest", controller.signal),
       getJson<MunicipalityCollection>("network/municipality", controller.signal),
-      loadLinks(controller.signal),
+      getJson<AnalysisManifest>("syntax/manifest", controller.signal).catch(() => null),
+      scenarioName
+        ? loadScenario(scenarioName, controller.signal)
+        : loadLinks(controller.signal).then(({ network }) => ({ network, scenario: null })),
     ])
-      .then(([manifest, municipality, { network, analysis }]) =>
-        setState({ status: "ready", data: { manifest, network, municipality, analysis } }),
+      .then(([manifest, municipality, analysis, { network, scenario }]) =>
+        setState({
+          status: "ready",
+          data: { manifest, network, municipality, analysis, scenario },
+        }),
       )
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;

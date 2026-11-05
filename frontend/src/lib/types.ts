@@ -5,7 +5,10 @@ export type Zone = "result" | "buffer";
 export type Measure = "nain" | "nach";
 export type RadiusKey = "n" | "2000" | "1200" | "800" | "400";
 
-type MeasureKey = `${Measure}_${RadiusKey}` | `c_${Measure}_${RadiusKey}`;
+type MeasureKey =
+  | `${Measure}_${RadiusKey}`
+  | `c_${Measure}_${RadiusKey}`
+  | `d_${Measure}_${RadiusKey}`;
 
 /** nain_n, nach_800, … (valor) e c_nain_n, … (classe 0..6; null no entorno) */
 export type MeasureProperties = { [K in MeasureKey]?: number | null };
@@ -18,6 +21,19 @@ export interface LinkProperties extends MeasureProperties {
   is_bridge: boolean;
   is_tunnel: boolean;
   length_m: number;
+  /** só em cenários */
+  removed?: boolean;
+  new?: boolean;
+}
+
+export interface ScenarioManifest {
+  name: string;
+  removed: string[];
+  added: string[];
+  engine_seconds: number;
+  created_at: string;
+  preliminary: boolean;
+  summary_result_zone: Record<string, { km_up: number; km_down: number }>;
 }
 
 export interface AnalysisManifest {
@@ -64,4 +80,6 @@ export interface SnapshotData {
   municipality: MunicipalityCollection;
   /** null enquanto a análise sintática não rodou (o mapa mostra a rede em tons neutros) */
   analysis: AnalysisManifest | null;
+  /** presente quando a URL tem ?cenario=nome */
+  scenario: ScenarioManifest | null;
 }

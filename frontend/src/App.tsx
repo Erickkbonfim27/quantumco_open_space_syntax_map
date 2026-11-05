@@ -4,6 +4,7 @@ import { QuantumcoIcon } from "./brand/QuantumcoIcon";
 import { Footer } from "./components/Footer";
 import { AnalysisPanel } from "./features/map/AnalysisPanel";
 import { MapView, type Selection } from "./features/map/MapView";
+import { ScenarioPanel } from "./features/map/ScenarioPanel";
 import { SelectionPanel } from "./features/map/SelectionPanel";
 import { ReleaseInfo } from "./features/release/ReleaseInfo";
 import { useSnapshotData } from "./features/release/useSnapshotData";
@@ -58,6 +59,9 @@ export function App() {
         )}
         {state.status === "ready" && (
           <>
+            {state.data.scenario && (
+              <ScenarioPanel scenario={state.data.scenario} measure={measure} radius={radius} />
+            )}
             <AnalysisPanel
               analysis={state.data.analysis}
               measure={measure}

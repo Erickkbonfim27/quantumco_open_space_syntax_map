@@ -562,3 +562,18 @@ strong {
     display: none;
   }
 }
+
+/* ------------------------------------------------------------------ cenários */
+
+.scenario-name {
+  font-size: 22px;
+  font-weight: 300;
+}
+
+.delta-up {
+  color: #2bd46b;
+}
+
+.delta-down {
+  color: #e879f9;
+}

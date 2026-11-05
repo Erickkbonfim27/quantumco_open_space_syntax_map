@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from quantumco.bootstrap.settings import Settings
 from quantumco.entrypoints.api.app import create_app
 from quantumco.road_network.application.queries import GetCurrentNetwork, PublishedNetwork
-from quantumco.syntax_analysis.application.queries import GetSyntaxMap, SyntaxMap
+from quantumco.syntax_analysis.application.queries import GetScenario, GetSyntaxMap, SyntaxMap
 
 from ..support import METHODOLOGY_V1
 
@@ -39,6 +39,14 @@ class SyntaxReader:
         return self.syntax
 
 
+class ScenarioReader:
+    def list(self) -> list[dict[str, object]]:
+        return []
+
+    def get(self, name: str) -> None:
+        return None
+
+
 NETWORK = PublishedNetwork(
     snapshot_id="snap-1",
     manifest={"snapshot_id": "snap-1", "study_area": {"ibge_code": "4202909"}},
@@ -56,6 +64,7 @@ def client(network: PublishedNetwork | None, syntax: SyntaxMap | None) -> TestCl
         settings,
         network_query=GetCurrentNetwork(NetworkReader(network)),
         syntax_query=GetSyntaxMap(SyntaxReader(syntax)),
+        scenarios=GetScenario(ScenarioReader()),
     )
     return TestClient(app)
 
@@ -91,3 +100,9 @@ def test_syntax_endpoints() -> None:
     c = client(NETWORK, SYNTAX)
     assert c.get("/api/v1/syntax/manifest").json()["preliminary"] is True
     assert c.get("/api/v1/syntax/links").status_code == 200
+
+
+def test_unknown_scenario_is_404() -> None:
+    c = client(NETWORK, SYNTAX)
+    assert c.get("/api/v1/scenarios").json() == []
+    assert c.get("/api/v1/scenarios/nao-existe/links").status_code == 404

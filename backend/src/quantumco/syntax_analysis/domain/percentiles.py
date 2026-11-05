@@ -41,3 +41,27 @@ def classify(percentiles: FloatArray, classes: int) -> npt.NDArray[np.float64]:
     out = np.minimum(out, classes - 1)
     out[np.isnan(p)] = np.nan
     return out
+
+
+def class_cutoffs(values: FloatArray, lengths: FloatArray, classes: int) -> FloatArray:
+    """Limites (classes-1 valores) dos quantis ponderados por extensão.
+
+    Usado nos cenários: o cenário é classificado pelos cortes da BASE, para que uma rua que
+    passa a ficar acima do corte do topo da cidade atual "suba de classe" (Q23).
+    """
+    v = np.asarray(values, dtype=np.float64)
+    w = np.asarray(lengths, dtype=np.float64)
+    ok = ~np.isnan(v) & (w > 0)
+    order = np.argsort(v[ok], kind="mergesort")
+    sorted_v, sorted_w = v[ok][order], w[ok][order]
+    cumulative = np.cumsum(sorted_w) / sorted_w.sum()
+    targets = np.arange(1, classes) / classes
+    idx = np.minimum(np.searchsorted(cumulative, targets, side="left"), len(sorted_v) - 1)
+    return sorted_v[idx]
+
+
+def classify_by_cutoffs(values: FloatArray, cutoffs: FloatArray) -> FloatArray:
+    v = np.asarray(values, dtype=np.float64)
+    out = np.searchsorted(cutoffs, v, side="right").astype(np.float64)
+    out[np.isnan(v)] = np.nan
+    return out

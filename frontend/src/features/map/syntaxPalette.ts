@@ -72,3 +72,66 @@ export function syntaxWidth(measure: Measure, radius: RadiusKey): ExpressionSpec
 export function syntaxSortKey(measure: Measure, radius: RadiusKey): ExpressionSpecification {
   return ["coalesce", ["get", classProperty(measure, radius)], -1] as ExpressionSpecification;
 }
+
+/** Cores de MUDANÇA (cenários): fora da escala sintática, para não confundir. */
+export const DELTA_COLORS = {
+  lossStrong: "#C026D3",
+  loss: "#E879F9",
+  same: "#3A4246",
+  gain: "#86EFAC",
+  gainStrong: "#2BD46B",
+  removed: "#FF5A5F",
+  added: "#F4F6F5",
+} as const;
+
+const deltaProperty = (measure: Measure, radius: RadiusKey) => `d_${measure}_${radius}` as const;
+
+export function deltaColor(measure: Measure, radius: RadiusKey): ExpressionSpecification {
+  const d = ["coalesce", ["get", deltaProperty(measure, radius)], 0];
+  return [
+    "case",
+    ["==", ["get", "removed"], true],
+    DELTA_COLORS.removed,
+    ["==", ["get", "new"], true],
+    DELTA_COLORS.added,
+    ["<=", d, -2],
+    DELTA_COLORS.lossStrong,
+    ["==", d, -1],
+    DELTA_COLORS.loss,
+    ["==", d, 1],
+    DELTA_COLORS.gain,
+    [">=", d, 2],
+    DELTA_COLORS.gainStrong,
+    DELTA_COLORS.same,
+  ] as unknown as ExpressionSpecification;
+}
+
+export function deltaWidth(measure: Measure, radius: RadiusKey): ExpressionSpecification {
+  const d = ["abs", ["coalesce", ["get", deltaProperty(measure, radius)], 0]];
+  const base = [
+    "case",
+    ["any", ["==", ["get", "removed"], true], ["==", ["get", "new"], true]],
+    3.2,
+    ["+", 0.7, ["*", 0.9, ["min", d, 3]]],
+  ];
+  return [
+    "interpolate",
+    ["exponential", 1.6],
+    ["zoom"],
+    10,
+    ["*", base, 0.55],
+    14,
+    ["*", base, 1.6],
+    18,
+    ["*", base, 5],
+  ] as unknown as ExpressionSpecification;
+}
+
+export function deltaSortKey(measure: Measure, radius: RadiusKey): ExpressionSpecification {
+  return [
+    "case",
+    ["any", ["==", ["get", "removed"], true], ["==", ["get", "new"], true]],
+    10,
+    ["abs", ["coalesce", ["get", deltaProperty(measure, radius)], 0]],
+  ] as unknown as ExpressionSpecification;
+}

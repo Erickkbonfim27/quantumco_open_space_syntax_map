@@ -15,13 +15,18 @@ from fastapi.responses import JSONResponse
 
 from quantumco.bootstrap.road_network import current_network_query
 from quantumco.bootstrap.settings import Settings, load_env_file
-from quantumco.bootstrap.syntax_analysis import syntax_map_query
+from quantumco.bootstrap.syntax_analysis import scenario_query, syntax_map_query
 from quantumco.road_network.application.queries import (
     GetCurrentNetwork,
     NoSnapshotError,
     PublishedNetwork,
 )
-from quantumco.syntax_analysis.application.queries import GetSyntaxMap, NoAnalysisError
+from quantumco.syntax_analysis.application.queries import (
+    GetScenario,
+    GetSyntaxMap,
+    NoAnalysisError,
+    NoScenarioError,
+)
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +39,7 @@ def create_app(
     *,
     network_query: GetCurrentNetwork | None = None,
     syntax_query: GetSyntaxMap | None = None,
+    scenarios: GetScenario | None = None,
 ) -> FastAPI:
     if settings is None:
         load_env_file()
@@ -64,6 +70,10 @@ def create_app(
     async def no_snapshot(_: Request, error: NoSnapshotError) -> JSONResponse:
         return JSONResponse(status_code=503, content={"detail": str(error)})
 
+    @app.exception_handler(NoScenarioError)
+    async def no_scenario(_: Request, error: NoScenarioError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(error)})
+
     @app.exception_handler(NoAnalysisError)
     async def no_analysis(_: Request, error: NoAnalysisError) -> JSONResponse:
         return JSONResponse(status_code=503, content={"detail": str(error)})
@@ -80,7 +90,28 @@ def create_app(
     app.include_router(
         _syntax_router(syntax_query or syntax_map_query(settings)), prefix="/api/v1/syntax"
     )
+    app.include_router(
+        _scenario_router(scenarios or scenario_query(settings)), prefix="/api/v1/scenarios"
+    )
     return app
+
+
+def _scenario_router(query: GetScenario) -> APIRouter:
+    router = APIRouter(tags=["cenários"])
+
+    @router.get("")
+    def list_scenarios() -> list[dict[str, Any]]:
+        return [dict(item) for item in query.list()]
+
+    @router.get("/{name}/manifest")
+    def scenario_manifest(name: str) -> dict[str, Any]:
+        return dict(query(name).manifest)
+
+    @router.get("/{name}/links", response_class=Response)
+    def scenario_links(name: str) -> Response:
+        return Response(content=query(name).links_geojson, media_type=GEOJSON)
+
+    return router
 
 
 def _syntax_router(query: GetSyntaxMap) -> APIRouter:

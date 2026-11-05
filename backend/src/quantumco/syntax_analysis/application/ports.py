@@ -56,3 +56,32 @@ class AnalysisResult:
 
 class AnalysisRepository(Protocol):
     def save(self, result: AnalysisResult) -> str: ...
+
+
+@dataclass(frozen=True, slots=True)
+class BaseAnalysis:
+    """Análise publicada usada como referência de um cenário."""
+
+    analysis_id: str
+    snapshot_id: str
+    links: tuple[Link, ...]
+    values: Mapping[str, FloatArray]  # nain_n, nach_800, … alinhados a `links`
+
+
+class BaseAnalysisSource(Protocol):
+    def current(self) -> BaseAnalysis | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ScenarioResult:
+    name: str
+    base_analysis_id: str
+    snapshot_id: str
+    edits: Sequence[Mapping[str, Any]]
+    rows: Sequence[tuple[str, Mapping[str, float | int | bool | None]]]  # (trecho, medidas)
+    new_links: Sequence[tuple[str, Sequence[tuple[float, float]]]]
+    manifest: Mapping[str, Any]
+
+
+class ScenarioRepository(Protocol):
+    def save(self, result: ScenarioResult) -> str: ...

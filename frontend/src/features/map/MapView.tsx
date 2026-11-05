@@ -18,7 +18,14 @@ import { darkBasemapStyle } from "./basemapStyle";
 import { boundsOf } from "../../lib/geo";
 import type { LinkProperties, Measure, RadiusKey, SnapshotData } from "../../lib/types";
 import { lineColor, lineOpacity, lineWidth } from "./highwayGroups";
-import { syntaxColor, syntaxSortKey, syntaxWidth } from "./syntaxPalette";
+import {
+  deltaColor,
+  deltaSortKey,
+  deltaWidth,
+  syntaxColor,
+  syntaxSortKey,
+  syntaxWidth,
+} from "./syntaxPalette";
 
 /** Entorno (sem classe) em cinza neutro, como no design. */
 const BUFFER_GRAY = "#4A5155";
@@ -163,7 +170,11 @@ export function MapView({ data, measure, radius, selectedId, onSelect }: MapView
     if (!instance) return;
     const apply = () => {
       if (!instance.getLayer("links")) return;
-      if (data.analysis) {
+      if (data.scenario) {
+        instance.setPaintProperty("links", "line-color", deltaColor(measure, radius));
+        instance.setPaintProperty("links", "line-width", deltaWidth(measure, radius));
+        instance.setLayoutProperty("links", "line-sort-key", deltaSortKey(measure, radius));
+      } else if (data.analysis) {
         instance.setPaintProperty("links", "line-color", syntaxColor(measure, radius, BUFFER_GRAY));
         instance.setPaintProperty("links", "line-width", syntaxWidth(measure, radius));
         instance.setLayoutProperty("links", "line-sort-key", syntaxSortKey(measure, radius));
@@ -174,7 +185,7 @@ export function MapView({ data, measure, radius, selectedId, onSelect }: MapView
     };
     if (instance.getLayer("links")) apply();
     else instance.once("load", apply);
-  }, [data.analysis, measure, radius]);
+  }, [data.analysis, data.scenario, measure, radius]);
 
   // destaca o trecho selecionado
   useEffect(() => {

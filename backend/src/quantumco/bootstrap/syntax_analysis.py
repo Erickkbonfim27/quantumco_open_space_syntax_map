@@ -3,12 +3,18 @@ from __future__ import annotations
 from quantumco.bootstrap.settings import Settings
 from quantumco.platform.postgres import pool
 from quantumco.shared_kernel.clock import SystemClock
-from quantumco.syntax_analysis.application.queries import GetSyntaxMap
+from quantumco.syntax_analysis.application.queries import GetScenario, GetSyntaxMap
 from quantumco.syntax_analysis.application.run_analysis import RunAnalysis
+from quantumco.syntax_analysis.application.run_scenario import RunScenario
 from quantumco.syntax_analysis.infrastructure.postgis_analysis_repository import (
     PostgisAnalysisRepository,
 )
 from quantumco.syntax_analysis.infrastructure.postgis_network_source import PostgisNetworkSource
+from quantumco.syntax_analysis.infrastructure.postgis_scenarios import (
+    PostgisBaseAnalysisSource,
+    PostgisScenarioReader,
+    PostgisScenarioRepository,
+)
 from quantumco.syntax_analysis.infrastructure.postgis_syntax_map_reader import (
     PostgisSyntaxMapReader,
 )
@@ -33,3 +39,23 @@ def run_analysis_use_case(settings: Settings) -> RunAnalysis:
 
 def syntax_map_query(settings: Settings) -> GetSyntaxMap:
     return GetSyntaxMap(PostgisSyntaxMapReader(pool(settings.require_database())))
+
+
+def run_scenario_use_case(settings: Settings, snap_tolerance_m: float = 30.0) -> RunScenario:
+    from quantumco.syntax_analysis.infrastructure.cityseer_analyzer import (  # noqa: PLC0415
+        CityseerAnalyzer,
+    )
+
+    database = settings.require_database()
+    return RunScenario(
+        base=PostgisBaseAnalysisSource(database),
+        analyzer=CityseerAnalyzer(),
+        repository=PostgisScenarioRepository(database),
+        config=load_analysis_config(settings.methodology_dir),
+        clock=SystemClock(),
+        snap_tolerance_m=snap_tolerance_m,
+    )
+
+
+def scenario_query(settings: Settings) -> GetScenario:
+    return GetScenario(PostgisScenarioReader(pool(settings.require_database())))

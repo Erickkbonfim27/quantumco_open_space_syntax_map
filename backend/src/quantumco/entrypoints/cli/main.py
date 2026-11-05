@@ -9,17 +9,22 @@ import typer
 from quantumco.bootstrap.identity import build_mailer, sender_from
 from quantumco.bootstrap.road_network import build_snapshot_use_case
 from quantumco.bootstrap.settings import Settings, load_env_file
-from quantumco.bootstrap.syntax_analysis import run_analysis_use_case
+from quantumco.bootstrap.syntax_analysis import run_analysis_use_case, run_scenario_use_case
 from quantumco.identity.domain.email import EmailAddress, EmailMessage
 from quantumco.identity.infrastructure.resend_mailer import ResendMailer, RestrictedApiKeyError
 from quantumco.platform.postgres import migrate
 from quantumco.road_network.domain.highway_filter import FilterVariant
+from quantumco.syntax_analysis.domain.edits import AddStreet, Edit, RemoveLink
 
 app = typer.Typer(help="quantumco: mapa sintático aberto de Brusque-SC", no_args_is_help=True)
 snapshot_app = typer.Typer(
     help="Rede Viária: cold start e reprocessamento do snapshot do OSM", no_args_is_help=True
 )
 app.add_typer(snapshot_app, name="snapshot")
+scenario_app = typer.Typer(
+    help='Cenários "e se…" (laboratório): edite a rede e compare', no_args_is_help=True
+)
+app.add_typer(scenario_app, name="scenario")
 db_app = typer.Typer(help="Banco (PostGIS)", no_args_is_help=True)
 app.add_typer(db_app, name="db")
 analysis_app = typer.Typer(
@@ -123,6 +128,59 @@ def coldstart(ctx: typer.Context) -> None:
     typer.echo(f"snapshot → {result.location}")
     analysis, location = run_analysis_use_case(settings)()
     typer.echo(f"análise → {location} ({analysis.manifest['engine_seconds']}s de motor)")
+
+
+def _parse_street(spec: str, crs_epsg: int) -> AddStreet:
+    from pyproj import Transformer  # noqa: PLC0415
+
+    to_crs = Transformer.from_crs(4326, crs_epsg, always_xy=True)
+    points = []
+    for pair in spec.split(";"):
+        lon, lat = (float(v) for v in pair.split(","))
+        x, y = to_crs.transform(lon, lat)
+        points.append((float(x), float(y)))
+    return AddStreet(coords=tuple(points))
+
+
+@scenario_app.command("run")
+def scenario_run(
+    ctx: typer.Context,
+    name: Annotated[str, typer.Option(help="nome do cenário (ex.: ponte-centro)")],
+    remove: Annotated[
+        list[str] | None, typer.Option(help="id do trecho a remover (repetível)")
+    ] = None,
+    add: Annotated[
+        list[str] | None,
+        typer.Option(help='rua nova "lon,lat;lon,lat;…" (repetível; pontas encaixam na rede)'),
+    ] = None,
+    snap: Annotated[float, typer.Option(help="distância máxima de encaixe, em metros")] = 30.0,
+) -> None:
+    """Aplica as edições, recalcula a cidade inteira e compara com a análise publicada."""
+    settings: Settings = ctx.obj
+    _migrate_if_configured(settings)
+    edits: list[Edit] = [RemoveLink(link_id) for link_id in remove or []]
+    edits += [_parse_street(spec, 31982) for spec in add or []]
+    result, location = run_scenario_use_case(settings, snap)(name, edits)
+    typer.echo(f"cenário → {location}")
+    for key, change in result.manifest["summary_result_zone"].items():
+        typer.echo(
+            f"  {key:9s} subiu de classe: {change['km_up']:7.2f} km   "
+            f"caiu: {change['km_down']:7.2f} km"
+        )
+    typer.echo("  ver no mapa: /?cenario=" + name)
+
+
+@scenario_app.command("list")
+def scenario_list(ctx: typer.Context) -> None:
+    """Lista os cenários gravados."""
+    from quantumco.bootstrap.syntax_analysis import scenario_query  # noqa: PLC0415
+
+    settings: Settings = ctx.obj
+    for item in scenario_query(settings).list():
+        typer.echo(
+            f"{item['name']:30s} {item['created_at'][:16]}  "
+            f"-{len(item['removed'])} +{len(item['added'])}"
+        )
 
 
 @app.command("serve")

@@ -31,3 +31,34 @@ class GetSyntaxMap:
         if current is None:
             raise NoAnalysisError("nenhuma análise sintática; rode `quantumco analysis run`")
         return current
+
+
+@dataclass(frozen=True, slots=True)
+class ScenarioMap:
+    name: str
+    manifest: Mapping[str, Any]
+    links_geojson: bytes
+
+
+class ScenarioReader(Protocol):
+    def list(self) -> list[Mapping[str, Any]]: ...
+
+    def get(self, name: str) -> ScenarioMap | None: ...
+
+
+class NoScenarioError(LookupError):
+    pass
+
+
+class GetScenario:
+    def __init__(self, reader: ScenarioReader) -> None:
+        self._reader = reader
+
+    def list(self) -> list[Mapping[str, Any]]:
+        return self._reader.list()
+
+    def __call__(self, name: str) -> ScenarioMap:
+        found = self._reader.get(name)
+        if found is None:
+            raise NoScenarioError(f"cenário {name!r} não existe")
+        return found
