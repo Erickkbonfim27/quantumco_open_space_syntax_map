@@ -15,6 +15,16 @@ Análise angular **preliminar** (cityseer; juiz depthmapX no CI pendente) com NA
 400 m, 800 m, 1,2 km, 2 km e n, nas cores da sintaxe espacial (`backend/methodology/v1/symbology.yaml`).
 Fontes da view de polígonos: [`docs/data-sources.md`](docs/data-sources.md).
 
+## Rotas do site
+
+| Rota | Tela |
+|---|---|
+| `/` | landing |
+| `/map` | mapa sintático público (`/map?cenario=nome` mostra um cenário "e se…") |
+| `/entrar`, `/criar-conta` | login e cadastro |
+| `/painel` | cenários do usuário |
+| `/painel/cenario/:id` | mapa do cenário com polígonos e camadas |
+
 ## Rodar localmente
 
 ```bash

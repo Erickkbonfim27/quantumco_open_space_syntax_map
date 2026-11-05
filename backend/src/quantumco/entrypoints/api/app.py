@@ -13,15 +13,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
+from quantumco.bootstrap.platform import build_platform
 from quantumco.bootstrap.road_network import current_network_query
 from quantumco.bootstrap.settings import Settings, load_env_file
 from quantumco.bootstrap.syntax_analysis import scenario_query, syntax_map_query
+from quantumco.entrypoints.api.platform_routes import platform_router
+from quantumco.identity.application.auth import Authentication
 from quantumco.road_network.application.queries import (
     GetCurrentNetwork,
     NoSnapshotError,
     PublishedNetwork,
 )
+from quantumco.scenarios.application.workspaces import Workspaces
 from quantumco.syntax_analysis.application.queries import (
+    GetPolygonStats,
     GetScenario,
     GetSyntaxMap,
     NoAnalysisError,
@@ -40,6 +45,7 @@ def create_app(
     network_query: GetCurrentNetwork | None = None,
     syntax_query: GetSyntaxMap | None = None,
     scenarios: GetScenario | None = None,
+    platform: tuple[Authentication, Workspaces, GetPolygonStats] | None = None,
 ) -> FastAPI:
     if settings is None:
         load_env_file()
@@ -60,8 +66,9 @@ def create_app(
         app.add_middleware(
             CORSMiddleware,
             allow_origins=list(settings.cors_origins),
-            allow_methods=["GET"],
+            allow_methods=["GET", "POST", "PATCH", "DELETE"],
             allow_headers=["*"],
+            allow_credentials=True,
         )
 
     query = network_query or current_network_query(settings)
@@ -92,6 +99,11 @@ def create_app(
     )
     app.include_router(
         _scenario_router(scenarios or scenario_query(settings)), prefix="/api/v1/scenarios"
+    )
+    auth, workspaces, polygon_stats = platform or build_platform(settings)
+    app.include_router(
+        platform_router(auth, workspaces, polygon_stats, secure=settings.cookie_secure),
+        prefix="/api/v1",
     )
     return app
 

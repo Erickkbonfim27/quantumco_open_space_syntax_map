@@ -62,3 +62,20 @@ class GetScenario:
         if found is None:
             raise NoScenarioError(f"cenário {name!r} não existe")
         return found
+
+
+class PolygonStatsReader(Protocol):
+    def stats(self, ring: list[tuple[float, float]]) -> Mapping[str, Any] | None:
+        """Camadas N1 (território) e N5 (rede) para um polígono em (lon, lat)."""
+        ...
+
+
+class GetPolygonStats:
+    def __init__(self, reader: PolygonStatsReader) -> None:
+        self._reader = reader
+
+    def __call__(self, ring: list[tuple[float, float]]) -> Mapping[str, Any]:
+        result = self._reader.stats(ring)
+        if result is None:
+            raise NoAnalysisError("nenhuma análise sintática publicada")
+        return result

@@ -40,6 +40,7 @@ class Settings:
     owner_email: str
     cors_origins: tuple[str, ...]
     database_url: str
+    cookie_secure: bool
 
     def require_database(self) -> str:
         if not self.database_url:
@@ -61,6 +62,7 @@ class Settings:
             mail_from_name=source.get("MAIL_FROM_NAME", "quantumco").strip(),
             owner_email=source.get("OWNER_EMAIL", "").strip(),
             database_url=source.get("QC_DATABASE_URL", "").strip(),
+            cookie_secure=source.get("QC_COOKIE_SECURE", "true").strip().lower() != "false",
             cors_origins=tuple(
                 origin.strip()
                 for origin in source.get("QC_CORS_ORIGINS", "").split(",")

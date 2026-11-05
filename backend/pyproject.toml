@@ -19,6 +19,7 @@ dependencies = [
     "cityseer>=5.8,<6",
     "psycopg[binary]>=3.2",
     "psycopg-pool>=3.2",
+    "argon2-cffi>=23.1",
 ]
 
 [project.scripts]
@@ -60,7 +61,7 @@ mypy_path = "src"
 packages = ["quantumco"]
 
 [[tool.mypy.overrides]]
-module = ["geopandas.*", "pyproj.*", "pyarrow.*", "cityseer.*", "pandas.*"]
+module = ["geopandas.*", "pyproj.*", "pyarrow.*", "cityseer.*", "pandas.*", "argon2.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -117,6 +118,15 @@ layers = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "Cenários do usuário: camadas hexagonais"
+type = "layers"
+layers = [
+    "quantumco.scenarios.infrastructure",
+    "quantumco.scenarios.application",
+    "quantumco.scenarios.domain",
+]
+
+[[tool.importlinter.contracts]]
 name = "Shared kernel não depende de nenhum contexto"
 type = "forbidden"
 source_modules = ["quantumco.shared_kernel"]
@@ -142,6 +152,8 @@ source_modules = [
     "quantumco.identity.application",
     "quantumco.syntax_analysis.domain",
     "quantumco.syntax_analysis.application",
+    "quantumco.scenarios.domain",
+    "quantumco.scenarios.application",
 ]
 forbidden_modules = [
     "geopandas",
@@ -158,4 +170,5 @@ forbidden_modules = [
     "psycopg",
     "psycopg_pool",
     "quantumco.platform",
+    "argon2",
 ]
