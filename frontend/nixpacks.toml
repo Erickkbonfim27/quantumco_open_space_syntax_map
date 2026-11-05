@@ -6,6 +6,8 @@
 providers = []
 
 [phases.setup]
+# nixpkgs fixado (nixos-26.05, 2026-11-02): o padrão do Nixpacks 1.41 é antigo e não tem nodejs_24
+nixpkgsArchive = "7dcdd87373d72e7a2173e4db02e20d3d7f495cfd"
 nixPkgs = ["nodejs_24", "caddy"]
 
 [phases.install]
