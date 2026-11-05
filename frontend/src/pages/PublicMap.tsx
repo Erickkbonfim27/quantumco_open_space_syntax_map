@@ -75,7 +75,7 @@ export function PublicMap() {
               radius={radius}
               onClose={() => setSelection(null)}
             />
-            <ReleaseInfo manifest={state.data.manifest} />
+            <ReleaseInfo manifest={state.data.manifest} analysis={state.data.analysis} />
           </>
         )}
 

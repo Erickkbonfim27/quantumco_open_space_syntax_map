@@ -1,11 +1,15 @@
 import type { StyleSpecification } from "maplibre-gl";
 
 /**
- * Mapa de fundo escuro da marca (Quantumco App): quase preto, rios discretos e só os nomes de
- * lugares. Usa os vector tiles do OpenFreeMap (dados OpenStreetMap, esquema OpenMapTiles).
+ * Mapa de fundo escuro da marca (Quantumco App): quase preto liso com grade de pontos, rios
+ * discretos e só os nomes de lugares (desenhados POR CIMA da rede;
+ * ver LABEL_LAYER). Usa os vector tiles do OpenFreeMap (dados OpenStreetMap, esquema OpenMapTiles).
  * Ruas do mapa de fundo ficam de fora: a rede que importa é a nossa.
  */
 const TEXT = "rgba(244,246,245,0.72)";
+
+/** Camada de nomes: a rede sintática entra antes dela, para os nomes ficarem legíveis. */
+export const LABEL_LAYER = "place-labels";
 
 export const darkBasemapStyle: StyleSpecification = {
   version: 8,
@@ -21,15 +25,8 @@ export const darkBasemapStyle: StyleSpecification = {
     },
   },
   layers: [
-    { id: "background", type: "background", paint: { "background-color": "#07090A" } },
-    {
-      id: "landcover-wood",
-      type: "fill",
-      source: "openmaptiles",
-      "source-layer": "landcover",
-      filter: ["==", ["get", "class"], "wood"],
-      paint: { "fill-color": "#0B0F0E", "fill-opacity": 0.8 },
-    },
+    // fundo transparente: a cor e a grade de pontos vêm do CSS (.map), como no design
+    { id: "background", type: "background", paint: { "background-color": "#07090A", "background-opacity": 0 } },
     {
       id: "water",
       type: "fill",
@@ -63,7 +60,8 @@ export const darkBasemapStyle: StyleSpecification = {
       paint: {
         "text-color": TEXT,
         "text-halo-color": "#07090A",
-        "text-halo-width": 1.2,
+        "text-halo-width": 1.6,
+        "text-halo-blur": 0.5,
       },
     },
   ],

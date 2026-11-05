@@ -113,7 +113,7 @@ export function Auth({ mode }: { mode: "login" | "signup" }) {
           <label className="input-field">
             <span className="label label-row">
               <span>SENHA</span>
-              {signup && <span className="hint">mínimo de 8 caracteres</span>}
+              {signup && <span className="field-hint">mínimo de 8 caracteres</span>}
             </span>
             <input
               type="password"

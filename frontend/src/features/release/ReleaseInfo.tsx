@@ -1,7 +1,12 @@
 import { formatDateTime, formatInt, formatKm, percent } from "../../lib/format";
-import type { Manifest } from "../../lib/types";
+import type { AnalysisManifest, Manifest } from "../../lib/types";
 
-export function ReleaseInfo({ manifest }: { manifest: Manifest }) {
+interface ReleaseInfoProps {
+  manifest: Manifest;
+  analysis: AnalysisManifest | null;
+}
+
+export function ReleaseInfo({ manifest, analysis }: ReleaseInfoProps) {
   const report = manifest.cleaning_report;
   return (
     <section className="panel-section" aria-labelledby="release-title">
@@ -30,6 +35,19 @@ export function ReleaseInfo({ manifest }: { manifest: Manifest }) {
         <dd className="mono small">
           v{manifest.methodology_version} · {manifest.filter_version}
         </dd>
+        {analysis && (
+          <>
+            <dt>Motor</dt>
+            <dd>
+              {analysis.engine} {analysis.engine_version}
+              {analysis.preliminary && (
+                <span className="pill-warn" title="Validação contra o depthmapX pendente; classes por percentil da extensão viária de Brusque.">
+                  preliminar
+                </span>
+              )}
+            </dd>
+          </>
+        )}
       </dl>
     </section>
   );

@@ -26,3 +26,4 @@ data/
 !.env.example
 
 frontend/dist/
+frontend/*.tsbuildinfo

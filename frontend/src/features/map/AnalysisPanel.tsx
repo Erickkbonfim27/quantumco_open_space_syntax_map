@@ -68,19 +68,11 @@ export function AnalysisPanel({ analysis, measure, radius, onMeasure, onRadius }
           <span>{isIntegration ? "Mais integrado" : "Mais escolhido"}</span>
         </div>
       </div>
-      {analysis === null ? (
+      {analysis === null && (
         <p className="notice">
           <span className="dot" aria-hidden="true" /> Análise sintática ainda não calculada. Rode{" "}
           <code>uv run quantumco analysis run</code>.
         </p>
-      ) : (
-        analysis.preliminary && (
-          <p className="notice">
-            <span className="dot dot-warn" aria-hidden="true" /> Preliminar: {analysis.engine}{" "}
-            {analysis.engine_version}, validação contra o depthmapX pendente. Classes por
-            percentil da extensão viária de Brusque.
-          </p>
-        )
       )}
       <ul className="legend">
         <li>

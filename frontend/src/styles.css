@@ -95,6 +95,13 @@ strong {
   inset: 0;
 }
 
+/* fundo do design: quase preto liso com grade de pontos (36 px), que acompanha o mapa */
+.map {
+  background-color: var(--map-bg);
+  background-image: radial-gradient(circle, rgba(244, 246, 245, 0.11) 0.9px, transparent 1.2px);
+  background-size: 36px 36px;
+}
+
 .panel {
   position: absolute;
   top: var(--inset);
@@ -221,8 +228,16 @@ strong {
   padding: 0 2px;
 }
 
-.dot.dot-warn {
-  background: #e3dc2e;
+.pill-warn {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border: 1px solid rgba(227, 220, 46, 0.4);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #e3dc2e;
+  cursor: help;
 }
 
 .metric {
@@ -355,6 +370,8 @@ strong {
 
 .hint {
   padding: 18px;
+  font-size: 15px;
+  line-height: 1.45;
   border: 1px dashed rgba(244, 246, 245, 0.18);
   border-radius: 16px;
   color: var(--text-muted);
@@ -541,20 +558,31 @@ strong {
   color: var(--text-faint);
 }
 
-.maplibregl-ctrl-attrib.maplibregl-compact {
-  background: var(--glass) !important;
+.maplibregl-ctrl-bottom-right {
+  right: calc(var(--inset) - 10px);
+  bottom: calc(var(--inset) - 10px);
 }
 
-.maplibregl-ctrl-attrib-button {
-  filter: invert(1);
+.maplibregl-ctrl-attrib a:hover {
+  color: var(--text-soft);
 }
 
+/* escala como no design: colchete fino com o rótulo dentro */
 .maplibregl-ctrl-scale {
-  border-color: rgba(244, 246, 245, 0.7) !important;
+  margin-bottom: 6px !important;
+  padding: 0 4px 3px !important;
+  border: 1.5px solid rgba(244, 246, 245, 0.7) !important;
+  border-top: 0 !important;
   background: transparent !important;
   font-family: var(--font-mono);
   font-size: 11px;
+  line-height: 1;
   color: rgba(244, 246, 245, 0.7) !important;
+}
+
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-scale {
+  margin-right: 10px !important;
+  margin-left: auto;
 }
 
 @media (max-width: 760px) {

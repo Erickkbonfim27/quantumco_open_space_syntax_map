@@ -436,7 +436,7 @@
   justify-content: space-between;
 }
 
-.hint {
+.field-hint {
   font-family: var(--font-sans);
   font-size: 13px;
   letter-spacing: 0;
@@ -1126,6 +1126,10 @@
 .poly-map {
   position: absolute;
   inset: 0;
+  /* o mapa de fundo é transparente: cor e grade de pontos vêm daqui (como em .map) */
+  background-color: var(--map-bg);
+  background-image: radial-gradient(circle, rgba(244, 246, 245, 0.11) 0.9px, transparent 1.2px);
+  background-size: 36px 36px;
 }
 
 .ws-overlay {

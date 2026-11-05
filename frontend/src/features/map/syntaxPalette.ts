@@ -55,13 +55,15 @@ export function syntaxColor(measure: Measure, radius: RadiusKey, fallback: strin
 
 /** Mais integrado = mais grosso e desenhado por cima (como no design e no depthmapX). */
 export function syntaxWidth(measure: Measure, radius: RadiusKey): ExpressionSpecification {
-  const base = ["+", 0.6, ["*", 0.32, ["coalesce", ["get", classProperty(measure, radius)], 0]]];
+  const cls = ["get", classProperty(measure, radius)];
+  // entorno (sem classe) em traço fino fixo, como no design; classes de 0,7 a 2,5 (×zoom)
+  const base = ["case", ["==", cls, null], 0.9, ["+", 0.7, ["*", 0.3, cls]]];
   return [
     "interpolate",
     ["exponential", 1.6],
     ["zoom"],
     10,
-    ["*", base, 0.55],
+    ["*", base, 0.8],
     14,
     ["*", base, 1.6],
     18,

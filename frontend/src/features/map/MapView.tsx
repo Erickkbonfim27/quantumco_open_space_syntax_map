@@ -1,6 +1,7 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 
 import {
+  type FilterSpecification,
   type GeoJSONSource,
   Map as MapLibreMap,
   type MapLayerMouseEvent,
@@ -14,7 +15,7 @@ import type { FeatureCollection } from "geojson";
 import { useEffect, useRef } from "react";
 
 import { config } from "../../config";
-import { darkBasemapStyle } from "./basemapStyle";
+import { darkBasemapStyle, LABEL_LAYER } from "./basemapStyle";
 import { boundsOf } from "../../lib/geo";
 import type { LinkProperties, Measure, RadiusKey, SnapshotData } from "../../lib/types";
 import { lineColor, lineOpacity, lineWidth } from "./highwayGroups";
@@ -29,6 +30,8 @@ import {
 
 /** Entorno (sem classe) em cinza neutro, como no design. */
 const BUFFER_GRAY = "#4A5155";
+/** Passo da grade de pontos do fundo (px), igual ao design e ao CSS. */
+const GRID = 36;
 
 // O MapLibre 6 resolve o worker por uma URL dinâmica que o Vite não enxerga; registramos o
 // arquivo explicitamente (ele é autocontido, sem imports).
@@ -68,12 +71,25 @@ export function MapView({ data, measure, radius, selectedId, onSelect }: MapView
       style: config.basemapStyleUrl ?? darkBasemapStyle,
       center: [-48.917, -27.098],
       zoom: 12,
-      attributionControl: { compact: true },
+      attributionControl: { compact: false },
     });
     instance.addControl(new NavigationControl({ showCompass: false }), "top-right");
     instance.addControl(new ScaleControl({ unit: "metric" }), "bottom-right");
 
+    // grade de pontos do design: o fundo (CSS) acompanha o arraste do mapa
+    const anchor: [number, number] = [-48.917, -27.098];
+    const syncGrid = () => {
+      const el = container.current;
+      if (!el) return;
+      const p = instance.project(anchor);
+      el.style.backgroundPosition = `${p.x % GRID}px ${p.y % GRID}px`;
+    };
+    instance.on("move", syncGrid);
+
     instance.on("load", () => {
+      syncGrid();
+      // a rede entra ANTES dos nomes de lugares, que ficam legíveis por cima
+      const before = instance.getLayer(LABEL_LAYER) ? LABEL_LAYER : undefined;
       instance.addSource(MUNICIPALITY, { type: "geojson", data: empty() });
       instance.addSource(NETWORK, { type: "geojson", data: empty(), promoteId: "link_id" });
 
@@ -82,7 +98,7 @@ export function MapView({ data, measure, radius, selectedId, onSelect }: MapView
         type: "fill",
         source: MUNICIPALITY,
         paint: { "fill-color": "#F4F6F5", "fill-opacity": 0.015 },
-      });
+      }, before);
       instance.addLayer({
         id: "links",
         type: "line",
@@ -93,14 +109,25 @@ export function MapView({ data, measure, radius, selectedId, onSelect }: MapView
           "line-width": lineWidth(),
           "line-opacity": lineOpacity(),
         },
-      });
+      }, before);
       // camada invisível e larga só para facilitar o clique em linhas finas
       instance.addLayer({
         id: "links-hit",
         type: "line",
         source: NETWORK,
         paint: { "line-color": "#000", "line-opacity": 0, "line-width": 12 },
-      });
+      }, before);
+      instance.addLayer(
+        {
+          id: "links-selected-glow",
+          type: "line",
+          source: NETWORK,
+          filter: ["==", ["get", "link_id"], ""],
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: { "line-color": "#F4F6F5", "line-opacity": 0.18, "line-width": lineWidth(9), "line-blur": 6 },
+        },
+        before,
+      );
       instance.addLayer({
         id: "links-selected",
         type: "line",
@@ -108,13 +135,13 @@ export function MapView({ data, measure, radius, selectedId, onSelect }: MapView
         filter: ["==", ["get", "link_id"], ""],
         layout: { "line-cap": "round", "line-join": "round" },
         paint: { "line-color": "#F4F6F5", "line-width": lineWidth(3) },
-      });
+      }, before);
       instance.addLayer({
         id: "municipality-outline",
         type: "line",
         source: MUNICIPALITY,
         paint: { "line-color": "rgba(244,246,245,0.5)", "line-width": 1.2, "line-dasharray": [4, 3] },
-      });
+      }, before);
     });
 
     instance.on("click", "links-hit", (event: MapLayerMouseEvent) => {
@@ -191,7 +218,9 @@ export function MapView({ data, measure, radius, selectedId, onSelect }: MapView
   useEffect(() => {
     const instance = map.current;
     if (!instance?.getLayer("links-selected")) return;
-    instance.setFilter("links-selected", ["==", ["get", "link_id"], selectedId ?? ""]);
+    const filter: FilterSpecification = ["==", ["get", "link_id"], selectedId ?? ""];
+    instance.setFilter("links-selected", filter);
+    instance.setFilter("links-selected-glow", filter);
   }, [selectedId]);
 
   return <div ref={container} className="map" role="region" aria-label="Mapa da rede viária" />;
