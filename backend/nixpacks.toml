@@ -1,23 +1,15 @@
 # Serviço "backend" (FastAPI + CLI de cold start) no Easypanel.
 #   Origem: GitHub, build path "/backend" (a pasta é autocontida: código + methodology/).
 #   Builder: Nixpacks. Porta interna: 8000. Dados: só no PostGIS (QC_DATABASE_URL).
-#   Cold start, uma vez, no console do serviço:  quantumco coldstart
+#   Cold start, uma vez, no console do serviço:  /app/.venv/bin/quantumco coldstart
 #
-# O frontend tem o próprio nixpacks.toml em frontend/ (build path "/frontend").
+# Sem bloco [variables]: o Easypanel monta os ARGs do build só com as variáveis dele, e as
+# definidas aqui chegavam vazias (ex.: UV_LINK_MODE=""). Tudo vai explícito nos comandos.
 
 providers = []  # sem detecção automática: tudo está declarado aqui
 
-[variables]
-PYTHONUNBUFFERED = "1"
-UV_PROJECT_ENVIRONMENT = "/app/.venv"
-UV_COMPILE_BYTECODE = "1"
-UV_LINK_MODE = "copy"
-UV_PYTHON_DOWNLOADS = "never"   # usa o Python 3.13 do nix, não baixa outro
-QC_METHODOLOGY_DIR = "/app/methodology/v1"
-RAYON_NUM_THREADS = "2"         # KVM 2 = 2 vCPU (threads do cityseer)
-
 [phases.setup]
-# nixpkgs fixado (nixos-26.05, 2026-11-02): o padrão do Nixpacks 1.41 é antigo e não tem nodejs_24
+# nixpkgs fixado (nixos-26.05, 2026-11-02): o padrão do Nixpacks 1.41 é antigo
 nixpkgsArchive = "7dcdd87373d72e7a2173e4db02e20d3d7f495cfd"
 nixPkgs = ["python313"]
 # wheels manylinux (numpy, shapely, pyogrio, pyproj, cityseer) precisam destas libs
@@ -27,8 +19,8 @@ nixLibs = ["zlib", "stdenv.cc.cc.lib"]
 cmds = [
   # uv fixado na mesma versão que gerou o uv.lock
   "python3.13 -m venv /opt/uv && /opt/uv/bin/pip install --no-cache-dir uv==0.13.6",
-  "/opt/uv/bin/uv sync --frozen --no-dev --python python3.13",
+  "env -u UV_LINK_MODE -u UV_COMPILE_BYTECODE UV_PROJECT_ENVIRONMENT=/app/.venv UV_PYTHON_DOWNLOADS=never /opt/uv/bin/uv sync --frozen --no-dev --python python3.13 --link-mode copy --compile-bytecode",
 ]
 
 [start]
-cmd = "/app/.venv/bin/uvicorn quantumco.entrypoints.api.app:create_app --factory --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*'"
+cmd = "PYTHONUNBUFFERED=1 /app/.venv/bin/uvicorn quantumco.entrypoints.api.app:create_app --factory --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*'"
