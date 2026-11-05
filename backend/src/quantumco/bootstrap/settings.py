@@ -13,7 +13,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+REPO_ROOT = Path(__file__).resolve().parents[4]  # onde fica o .env local
+BACKEND_ROOT = Path(__file__).resolve().parents[3]  # build path "/backend" no deploy
 
 
 def load_env_file(path: Path = REPO_ROOT / ".env") -> None:
@@ -24,7 +25,7 @@ def load_env_file(path: Path = REPO_ROOT / ".env") -> None:
 
 def _path(value: str) -> Path:
     path = Path(value).expanduser()
-    return path if path.is_absolute() else REPO_ROOT / path
+    return path if path.is_absolute() else BACKEND_ROOT / path
 
 
 @dataclass(frozen=True, slots=True)

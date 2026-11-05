@@ -1,7 +1,7 @@
 import type { ExpressionSpecification } from "maplibre-gl";
 
 /**
- * Agrupamento das classes OSM na hierarquia da LC 419/2024 (methodology/v1/widths.csv).
+ * Agrupamento das classes OSM na hierarquia da LC 419/2024 (backend/methodology/v1/widths.csv).
  *
  * Cores NEUTRAS de propósito: a escala de cor (azul → vermelho) é reservada às medidas
  * sintáticas (NAIN/NACH), seguindo o padrão do Depthmap. A classe da via não é medida

@@ -4,7 +4,7 @@ Mapa sintático (sintaxe espacial) aberto e gratuito de **Brusque-SC**, constru�
 OpenStreetMap. Para arquitetura e urbanismo, construtoras e incorporadoras.
 
 - Decisões de produto, metodologia e arquitetura: [`docs/decisions.md`](docs/decisions.md)
-- Metodologia versionada (filtros, larguras, limiares pré-registrados): [`methodology/v1/`](methodology/v1/)
+- Metodologia versionada (filtros, larguras, limiares pré-registrados): [`backend/methodology/v1/`](backend/methodology/v1/)
 - Glossário PT↔EN: [`docs/glossary.md`](docs/glossary.md)
 
 ## Estado
@@ -12,7 +12,7 @@ OpenStreetMap. Para arquitetura e urbanismo, construtoras e incorporadoras.
 Passo 1 de 7 (ver `docs/decisions.md`): contexto **Rede Viária** (OSM → filtro → topologia →
 maior componente → snapshot), **API** servindo a rede e **frontend** que a exibe em cinza neutro.
 Análise angular **preliminar** (cityseer; juiz depthmapX no CI pendente) com NAIN e NACH em
-400 m, 800 m, 1,2 km, 2 km e n, nas cores da sintaxe espacial (`methodology/v1/symbology.yaml`).
+400 m, 800 m, 1,2 km, 2 km e n, nas cores da sintaxe espacial (`backend/methodology/v1/symbology.yaml`).
 Fontes da view de polígonos: [`docs/data-sources.md`](docs/data-sources.md).
 
 ## Rodar localmente
@@ -57,8 +57,8 @@ Dois serviços "App" apontando para este repositório no GitHub:
 
 | Serviço | Build path | Config | Porta | Observações |
 |---|---|---|---|---|
-| `api` | `/` | `nixpacks.toml` | 8000 | `QC_DATABASE_URL` apontando para o PostGIS (host interno); variáveis do `.env`; health em `/health` |
-| `web` | `/frontend` | `frontend/nixpacks.toml` + `frontend/Caddyfile` | 80 | variável `API_UPSTREAM` = endereço interno da API (ex.: `projeto_api:8000`) |
+| `backend` | `/backend` | `backend/nixpacks.toml` | 8000 | `QC_DATABASE_URL` apontando para o PostGIS (host interno); variáveis do `.env`; health em `/health` |
+| `frontend` | `/frontend` | `frontend/nixpacks.toml` + `frontend/Caddyfile` | 80 | variável `API_UPSTREAM` = endereço interno da API (ex.: `projeto_api:8000`) |
 
 O Postgres precisa da imagem `postgis/postgis:18-3.6`. Depois do primeiro deploy da API, no
 console do serviço: `quantumco coldstart` (aplica as migrações, baixa o OSM, roda a análise e

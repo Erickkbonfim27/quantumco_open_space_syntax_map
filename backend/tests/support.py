@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-METHODOLOGY_V1 = Path(__file__).resolve().parents[2] / "methodology" / "v1"
+METHODOLOGY_V1 = Path(__file__).resolve().parents[1] / "methodology" / "v1"
 
 # coordenadas reais de Brusque em UTM 22S, para a reprojeção dar lon/lat plausíveis
 X0, Y0 = 700_000.0, 7_000_000.0

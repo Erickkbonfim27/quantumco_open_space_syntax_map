@@ -4,7 +4,7 @@ import type { Measure, RadiusKey } from "../../lib/types";
 /**
  * Escala das medidas sintáticas (NAIN/NACH), no espectro dos mapas de Londres:
  * azul = segregado → vermelho = integrado. Cores do design "Quantumco App" (Claude Design);
- * mesma ordem em methodology/v1/symbology.yaml. Classes por percentil ponderado por extensão.
+ * mesma ordem em backend/methodology/v1/symbology.yaml. Classes por percentil ponderado por extensão.
  *
  * Exclusiva das medidas sintáticas: nenhuma outra camada do mapa usa estas cores.
  */

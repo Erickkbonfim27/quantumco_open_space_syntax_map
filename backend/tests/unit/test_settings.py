@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from quantumco.bootstrap.settings import REPO_ROOT, Settings
+from quantumco.bootstrap.settings import BACKEND_ROOT, Settings
 
 
 def test_defaults_resolve_inside_repo() -> None:
     settings = Settings.from_env({})
-    assert settings.methodology_dir == REPO_ROOT / "methodology" / "v1"
+    assert settings.methodology_dir == BACKEND_ROOT / "methodology" / "v1"
     assert settings.database_url == ""
     assert settings.overpass_timeout_s == 300.0
     assert settings.log_level == "INFO"

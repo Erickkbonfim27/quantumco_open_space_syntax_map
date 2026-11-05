@@ -8,7 +8,7 @@ from quantumco.road_network.domain.highway_filter import HighwayFilter
 from quantumco.road_network.domain.osm import OsmWay
 from quantumco.road_network.infrastructure.yaml_methodology import YamlMethodology
 
-METHODOLOGY_V1 = Path(__file__).resolve().parents[4] / "methodology" / "v1"
+METHODOLOGY_V1 = Path(__file__).resolve().parents[3] / "methodology" / "v1"
 
 
 @pytest.fixture

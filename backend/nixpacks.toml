@@ -1,5 +1,5 @@
-# Serviço "api" (FastAPI + CLI de cold start) no Easypanel.
-#   Origem: GitHub, build path "/" (raiz do repositório: a API precisa de methodology/).
+# Serviço "backend" (FastAPI + CLI de cold start) no Easypanel.
+#   Origem: GitHub, build path "/backend" (a pasta é autocontida: código + methodology/).
 #   Builder: Nixpacks. Porta interna: 8000. Dados: só no PostGIS (QC_DATABASE_URL).
 #   Cold start, uma vez, no console do serviço:  quantumco coldstart
 #
@@ -27,7 +27,7 @@ nixLibs = ["zlib", "stdenv.cc.cc.lib"]
 cmds = [
   # uv fixado na mesma versão que gerou o uv.lock
   "python3.13 -m venv /opt/uv && /opt/uv/bin/pip install --no-cache-dir uv==0.13.6",
-  "cd backend && /opt/uv/bin/uv sync --frozen --no-dev --python python3.13",
+  "/opt/uv/bin/uv sync --frozen --no-dev --python python3.13",
 ]
 
 [start]

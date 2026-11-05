@@ -9,7 +9,7 @@ import pytest
 from quantumco.road_network.infrastructure.overpass_source import OverpassWaySource
 from quantumco.road_network.infrastructure.yaml_methodology import YamlMethodology
 
-METHODOLOGY_V1 = Path(__file__).resolve().parents[3] / "methodology" / "v1"
+METHODOLOGY_V1 = Path(__file__).resolve().parents[2] / "methodology" / "v1"
 
 
 @pytest.mark.network

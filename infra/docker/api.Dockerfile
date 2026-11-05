@@ -17,11 +17,10 @@ COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY backend/ ./
-COPY methodology/ /app/methodology/
 RUN uv sync --frozen --no-dev
 
 ENV PATH=/app/.venv/bin:$PATH \
-    QC_METHODOLOGY_DIR=/app/methodology/v1
+    QC_METHODOLOGY_DIR=/app/backend/methodology/v1
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
