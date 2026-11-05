@@ -57,11 +57,12 @@ Dois serviços "App" apontando para este repositório no GitHub:
 
 | Serviço | Build path | Config | Porta | Observações |
 |---|---|---|---|---|
-| `api` | `/` | `nixpacks.toml` | 8000 | volume em `/data`; variáveis do `.env` (seção 1 + e-mail); health em `/health` |
+| `api` | `/` | `nixpacks.toml` | 8000 | `QC_DATABASE_URL` apontando para o PostGIS (host interno); variáveis do `.env`; health em `/health` |
 | `web` | `/frontend` | `frontend/nixpacks.toml` + `frontend/Caddyfile` | 80 | variável `API_UPSTREAM` = endereço interno da API (ex.: `projeto_api:8000`) |
 
-Depois do primeiro deploy da API, no console do serviço: `quantumco coldstart` (snapshot do
-OSM + análise; cerca de 15 min em 2 vCPU). Alternativa aos Nixpacks: `infra/docker/*.Dockerfile`.
+O Postgres precisa da imagem `postgis/postgis:18-3.6`. Depois do primeiro deploy da API, no
+console do serviço: `quantumco coldstart` (aplica as migrações, baixa o OSM, roda a análise e
+publica tudo no PostGIS; cerca de 15 min em 2 vCPU). Alternativa aos Nixpacks: `infra/docker/*.Dockerfile`.
 
 ## Licenças
 

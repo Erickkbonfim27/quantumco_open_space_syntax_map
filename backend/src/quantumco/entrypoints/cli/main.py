@@ -12,6 +12,7 @@ from quantumco.bootstrap.settings import Settings, load_env_file
 from quantumco.bootstrap.syntax_analysis import run_analysis_use_case
 from quantumco.identity.domain.email import EmailAddress, EmailMessage
 from quantumco.identity.infrastructure.resend_mailer import ResendMailer, RestrictedApiKeyError
+from quantumco.platform.postgres import migrate
 from quantumco.road_network.domain.highway_filter import FilterVariant
 
 app = typer.Typer(help="quantumco: mapa sintático aberto de Brusque-SC", no_args_is_help=True)
@@ -19,6 +20,8 @@ snapshot_app = typer.Typer(
     help="Rede Viária: cold start e reprocessamento do snapshot do OSM", no_args_is_help=True
 )
 app.add_typer(snapshot_app, name="snapshot")
+db_app = typer.Typer(help="Banco (PostGIS)", no_args_is_help=True)
+app.add_typer(db_app, name="db")
 analysis_app = typer.Typer(
     help="Análise Sintática: integração e escolha angulares", no_args_is_help=True
 )
@@ -51,6 +54,20 @@ def main(
     ctx.obj = settings
 
 
+def _migrate_if_configured(settings: Settings) -> None:
+    applied = migrate(settings.require_database())
+    if applied:
+        typer.echo(f"migrações aplicadas: {', '.join(applied)}")
+
+
+@db_app.command("migrate")
+def db_migrate(ctx: typer.Context) -> None:
+    """Aplica as migrações pendentes no PostGIS (QC_DATABASE_URL)."""
+    settings: Settings = ctx.obj
+    applied = migrate(settings.require_database())
+    typer.echo(f"migrações aplicadas: {', '.join(applied) or 'nenhuma (já atualizado)'}")
+
+
 @snapshot_app.command("build")
 def build(
     ctx: typer.Context,
@@ -63,6 +80,7 @@ def build(
 ) -> None:
     """Baixa o OSM, filtra, monta a topologia e grava o snapshot com manifesto."""
     settings: Settings = ctx.obj
+    _migrate_if_configured(settings)
     result = build_snapshot_use_case(settings, as_of)(variant)
     report = result.snapshot.report
     typer.echo(f"snapshot {result.snapshot.snapshot_id} → {result.location}")
@@ -83,6 +101,7 @@ def build(
 def analysis_run(ctx: typer.Context) -> None:
     """Calcula NAIN e NACH em todos os raios sobre o snapshot mais recente."""
     settings: Settings = ctx.obj
+    _migrate_if_configured(settings)
     result, location = run_analysis_use_case(settings)()
     manifest = result.manifest
     typer.echo(f"análise → {location}")
@@ -99,6 +118,7 @@ def analysis_run(ctx: typer.Context) -> None:
 def coldstart(ctx: typer.Context) -> None:
     """Cold start completo: snapshot do OSM + análise sintática."""
     settings: Settings = ctx.obj
+    _migrate_if_configured(settings)
     result = build_snapshot_use_case(settings)(FilterVariant.BASE)
     typer.echo(f"snapshot → {result.location}")
     analysis, location = run_analysis_use_case(settings)()

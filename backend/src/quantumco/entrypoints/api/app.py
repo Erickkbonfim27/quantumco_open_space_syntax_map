@@ -29,7 +29,12 @@ GEOJSON = "application/geo+json"
 CACHE_CONTROL = "public, max-age=300"
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    network_query: GetCurrentNetwork | None = None,
+    syntax_query: GetSyntaxMap | None = None,
+) -> FastAPI:
     if settings is None:
         load_env_file()
         settings = Settings.from_env()
@@ -53,7 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             allow_headers=["*"],
         )
 
-    query = current_network_query(settings)
+    query = network_query or current_network_query(settings)
 
     @app.exception_handler(NoSnapshotError)
     async def no_snapshot(_: Request, error: NoSnapshotError) -> JSONResponse:
@@ -72,7 +77,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok", "snapshot": network.snapshot_id}
 
     app.include_router(_network_router(query), prefix="/api/v1/network")
-    app.include_router(_syntax_router(syntax_map_query(settings)), prefix="/api/v1/syntax")
+    app.include_router(
+        _syntax_router(syntax_query or syntax_map_query(settings)), prefix="/api/v1/syntax"
+    )
     return app
 
 

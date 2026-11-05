@@ -11,6 +11,19 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-24.04
+    services:
+      postgis:
+        image: postgis/postgis:18-3.6
+        env:
+          POSTGRES_USER: quantumco
+          POSTGRES_PASSWORD: quantumco
+          POSTGRES_DB: quantumco_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U quantumco -d quantumco_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      QC_TEST_DATABASE_URL: postgresql://quantumco:quantumco@localhost:5432/quantumco_test
     defaults:
       run:
         working-directory: backend
@@ -30,6 +43,8 @@ jobs:
         run: uv run lint-imports
       - name: testes
         run: uv run pytest
+      - name: testes com PostGIS
+        run: uv run pytest -m db
 
   frontend:
     runs-on: ubuntu-24.04

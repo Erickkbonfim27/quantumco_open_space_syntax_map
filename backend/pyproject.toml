@@ -17,6 +17,8 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "cityseer>=5.8,<6",
+    "psycopg[binary]>=3.2",
+    "psycopg-pool>=3.2",
 ]
 
 [project.scripts]
@@ -63,7 +65,10 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["network: precisa de acesso à internet (Overpass); fora do CI de PR"]
+markers = [
+    "network: precisa de acesso à internet (Overpass); fora do CI de PR",
+    "db: precisa de PostGIS (QC_TEST_DATABASE_URL); roda no CI com um container",
+]
 addopts = "-m 'not network'"
 
 # ---------------------------------------------------------------- arquitetura (Q38, Q39, Q49, Q50)
@@ -150,4 +155,7 @@ forbidden_modules = [
     "uvicorn",
     "cityseer",
     "pandas",
+    "psycopg",
+    "psycopg_pool",
+    "quantumco.platform",
 ]

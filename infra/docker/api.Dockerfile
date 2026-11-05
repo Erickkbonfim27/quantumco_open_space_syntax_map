@@ -1,7 +1,7 @@
 # API (FastAPI) + CLI de cold start na mesma imagem.
 # Build context: raiz do repositório.
 #   docker build -f infra/docker/api.Dockerfile -t quantumco-api .
-# Volume /data guarda os snapshots. Cold start (uma vez, no console do serviço):
+# Dados só no PostGIS (QC_DATABASE_URL). Cold start (uma vez, no console do serviço):
 #   quantumco snapshot build
 
 FROM python:3.13-slim
@@ -21,10 +21,8 @@ COPY methodology/ /app/methodology/
 RUN uv sync --frozen --no-dev
 
 ENV PATH=/app/.venv/bin:$PATH \
-    QC_DATA_DIR=/data \
     QC_METHODOLOGY_DIR=/app/methodology/v1
 
-VOLUME ["/data"]
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"

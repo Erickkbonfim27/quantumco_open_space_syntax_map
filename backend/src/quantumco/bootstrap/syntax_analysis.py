@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from quantumco.bootstrap.settings import Settings
+from quantumco.platform.postgres import pool
 from quantumco.shared_kernel.clock import SystemClock
 from quantumco.syntax_analysis.application.queries import GetSyntaxMap
 from quantumco.syntax_analysis.application.run_analysis import RunAnalysis
-from quantumco.syntax_analysis.infrastructure.file_analysis_repository import (
-    FileAnalysisRepository,
+from quantumco.syntax_analysis.infrastructure.postgis_analysis_repository import (
+    PostgisAnalysisRepository,
 )
-from quantumco.syntax_analysis.infrastructure.file_syntax_map_reader import FileSyntaxMapReader
-from quantumco.syntax_analysis.infrastructure.gpkg_network_source import GpkgNetworkSource
+from quantumco.syntax_analysis.infrastructure.postgis_network_source import PostgisNetworkSource
+from quantumco.syntax_analysis.infrastructure.postgis_syntax_map_reader import (
+    PostgisSyntaxMapReader,
+)
 from quantumco.syntax_analysis.infrastructure.yaml_config import load_analysis_config
 
 
@@ -18,16 +21,15 @@ def run_analysis_use_case(settings: Settings) -> RunAnalysis:
         CityseerAnalyzer,
     )
 
+    database = settings.require_database()
     return RunAnalysis(
-        source=GpkgNetworkSource(settings.data_dir / "snapshots"),
+        source=PostgisNetworkSource(database),
         analyzer=CityseerAnalyzer(),
-        repository=FileAnalysisRepository(settings.data_dir / "analyses"),
+        repository=PostgisAnalysisRepository(database),
         config=load_analysis_config(settings.methodology_dir),
         clock=SystemClock(),
     )
 
 
 def syntax_map_query(settings: Settings) -> GetSyntaxMap:
-    return GetSyntaxMap(
-        FileSyntaxMapReader(settings.data_dir / "snapshots", settings.data_dir / "analyses")
-    )
+    return GetSyntaxMap(PostgisSyntaxMapReader(pool(settings.require_database())))

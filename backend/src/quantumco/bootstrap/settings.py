@@ -30,7 +30,6 @@ def _path(value: str) -> Path:
 @dataclass(frozen=True, slots=True)
 class Settings:
     methodology_dir: Path
-    data_dir: Path
     overpass_url: str
     overpass_timeout_s: float
     log_level: str
@@ -39,13 +38,20 @@ class Settings:
     mail_from_name: str
     owner_email: str
     cors_origins: tuple[str, ...]
+    database_url: str
+
+    def require_database(self) -> str:
+        if not self.database_url:
+            raise RuntimeError(
+                "QC_DATABASE_URL não definido: rede e análise ficam só no PostGIS da VPS"
+            )
+        return self.database_url
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
         source = os.environ if env is None else env
         return cls(
             methodology_dir=_path(source.get("QC_METHODOLOGY_DIR", "methodology/v1")),
-            data_dir=_path(source.get("QC_DATA_DIR", "data")),
             overpass_url=source.get("QC_OVERPASS_URL", "https://overpass-api.de/api/interpreter"),
             overpass_timeout_s=float(source.get("QC_OVERPASS_TIMEOUT_S", "300")),
             log_level=source.get("QC_LOG_LEVEL", "INFO").upper(),
@@ -53,6 +59,7 @@ class Settings:
             mail_from=source.get("MAIL_FROM", "spacesyntax@erickkbonfim.com.br").strip(),
             mail_from_name=source.get("MAIL_FROM_NAME", "quantumco").strip(),
             owner_email=source.get("OWNER_EMAIL", "").strip(),
+            database_url=source.get("QC_DATABASE_URL", "").strip(),
             cors_origins=tuple(
                 origin.strip()
                 for origin in source.get("QC_CORS_ORIGINS", "").split(",")

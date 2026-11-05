@@ -65,6 +65,7 @@ Mudanças futuras entram como ADR em `docs/adr/` e atualizam este arquivo.
 |---|---|
 | API desde já | A **API FastAPI serve a rede** (`/api/v1/network/*`, gzip + ETag); o frontend consome só a API. O **CLI fica para cold start** e reprocessamento (`snapshot build`). O antigo `export-web` foi removido |
 | Simbologia | Paleta de 7 classes do design "Quantumco App" no espectro dos mapas de Londres (azul = segregado → vermelho = integrado), sobre fundo escuro; classes por percentil ponderado por extensão; integrados por cima (`methodology/v1/symbology.yaml`). Camadas não sintáticas em tons neutros |
+| Armazenamento servido | **PostGIS** é a fonte da API: schemas `road_network` e `syntax_analysis` (um por contexto), gravação por `COPY` e publicação atômica (`is_current` trocado na mesma transação). Arquivos locais só como fallback de desenvolvimento. RustFS fica para arquivar releases (ajusta a Q33) |
 | Marca | Identidade do Claude Design ("Quantumco Brand"/"Quantumco App"): Vácuo `#050607`, Grafite `#0F1213`, Branco `#F4F6F5`, Feixe verde `#2BD46B`, Feixe azul `#3B8CFF`; Outfit 200–400 (sem negrito pesado) e IBM Plex Mono para dados e rótulos; mapa escuro com painel de vidro |
 | E-mail | API do Resend, remetente `spacesyntax@erickkbonfim.com.br` |
 

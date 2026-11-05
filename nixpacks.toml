@@ -1,6 +1,6 @@
 # Serviço "api" (FastAPI + CLI de cold start) no Easypanel.
 #   Origem: GitHub, build path "/" (raiz do repositório: a API precisa de methodology/).
-#   Builder: Nixpacks. Porta interna: 8000. Volume: /data (snapshots e análises).
+#   Builder: Nixpacks. Porta interna: 8000. Dados: só no PostGIS (QC_DATABASE_URL).
 #   Cold start, uma vez, no console do serviço:  quantumco coldstart
 #
 # O frontend tem o próprio nixpacks.toml em frontend/ (build path "/frontend").
@@ -13,7 +13,6 @@ UV_PROJECT_ENVIRONMENT = "/app/.venv"
 UV_COMPILE_BYTECODE = "1"
 UV_LINK_MODE = "copy"
 UV_PYTHON_DOWNLOADS = "never"   # usa o Python 3.13 do nix, não baixa outro
-QC_DATA_DIR = "/data"
 QC_METHODOLOGY_DIR = "/app/methodology/v1"
 RAYON_NUM_THREADS = "2"         # KVM 2 = 2 vCPU (threads do cityseer)
 
