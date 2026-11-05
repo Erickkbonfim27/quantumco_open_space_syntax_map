@@ -1,0 +1,33 @@
+# Serviço "api" (FastAPI + CLI de cold start) no Easypanel.
+#   Origem: GitHub, build path "/" (raiz do repositório: a API precisa de methodology/).
+#   Builder: Nixpacks. Porta interna: 8000. Volume: /data (snapshots e análises).
+#   Cold start, uma vez, no console do serviço:  quantumco coldstart
+#
+# O frontend tem o próprio nixpacks.toml em frontend/ (build path "/frontend").
+
+providers = []  # sem detecção automática: tudo está declarado aqui
+
+[variables]
+PYTHONUNBUFFERED = "1"
+UV_PROJECT_ENVIRONMENT = "/app/.venv"
+UV_COMPILE_BYTECODE = "1"
+UV_LINK_MODE = "copy"
+UV_PYTHON_DOWNLOADS = "never"   # usa o Python 3.13 do nix, não baixa outro
+QC_DATA_DIR = "/data"
+QC_METHODOLOGY_DIR = "/app/methodology/v1"
+RAYON_NUM_THREADS = "2"         # KVM 2 = 2 vCPU (threads do cityseer)
+
+[phases.setup]
+nixPkgs = ["python313"]
+# wheels manylinux (numpy, shapely, pyogrio, pyproj, cityseer) precisam destas libs
+nixLibs = ["zlib", "stdenv.cc.cc.lib"]
+
+[phases.install]
+cmds = [
+  # uv fixado na mesma versão que gerou o uv.lock
+  "python3.13 -m venv /opt/uv && /opt/uv/bin/pip install --no-cache-dir uv==0.13.6",
+  "cd backend && /opt/uv/bin/uv sync --frozen --no-dev --python python3.13",
+]
+
+[start]
+cmd = "/app/.venv/bin/uvicorn quantumco.entrypoints.api.app:create_app --factory --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*'"

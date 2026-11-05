@@ -1,0 +1,43 @@
+# Simbologia das medidas sintáticas (NAIN/NACH).
+#
+# Paleta adotada: 7 classes do design "Quantumco App" (Claude Design), no espectro dos mapas
+# sintáticos de Londres: azul = segregado → ciano → verde → amarelo → laranja → vermelho =
+# integrado, sobre fundo escuro.
+#
+# Referência verificada: a paleta padrão do depthmapX ("Axmanesque", 10 classes, de
+# salalib/pafcolor.cpp) segue o mesmo espectro; fica abaixo como alternativa documentada.
+# A paleta exata da Space Syntax Ltd para Londres NÃO foi confirmada (site fora do ar em
+# 2026-11-05).
+#
+# - Classes: percentil PONDERADO POR EXTENSÃO (Q27), para comparar raios, representações e
+#   releases (o depthmapX usa faixas de largura igual entre mín. e máx.).
+# - Ordem de desenho: mais integrados por cima.
+# - Exclusiva das medidas sintáticas; camadas não sintáticas ficam em tons neutros.
+scale: quantumco_london
+classes: 7
+classification: length_weighted_quantiles
+low_label: "menos integrado"
+high_label: "mais integrado"
+background: "#07090A"
+colors:                     # da classe 1 (mais segregada) à 7 (mais integrada)
+  - "#2233D6"
+  - "#1E8FEA"
+  - "#20C4C4"
+  - "#4CC64A"
+  - "#E3DC2E"
+  - "#F28A1C"
+  - "#E3231E"
+draw_order: ascending
+non_syntactic_layers: neutral
+
+reference_depthmapx_axmanesque:   # g_nicecolor, depthmapX salalib/pafcolor.cpp
+  - "#3333DD"
+  - "#3388DD"
+  - "#22CCDD"
+  - "#22CCBB"
+  - "#22DD88"
+  - "#88DD22"
+  - "#BBCC22"
+  - "#DDCC22"
+  - "#DD8833"
+  - "#DD3333"

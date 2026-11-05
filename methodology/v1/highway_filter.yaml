@@ -1,0 +1,41 @@
+# Filtro de classes de via (Q7, Q13). Toda regra aqui é parte da metodologia.
+version: "highway_filter.v1"
+
+# Aceitas em toda a área de estudo (os sufixos _link são aceitos para as classes que os têm).
+included:
+  - motorway
+  - trunk
+  - primary
+  - secondary
+  - tertiary
+  - unclassified
+  - residential
+  - road
+  - living_street
+  - pedestrian
+  - steps
+  - service
+
+link_variants_of: [motorway, trunk, primary, secondary, tertiary]
+
+# Aceitas só na faixa externa (buffer rural).
+buffer_only:
+  - track
+
+# Variante de sensibilidade "com vias pedonais" (fora da base).
+pedestrian_variant:
+  - footway
+  - path
+  - cycleway
+
+# service com estes subtipos é acesso privado e fica de fora.
+excluded_service:
+  - driveway
+  - parking_aisle
+  - drive-through
+  - emergency_access
+
+# access com estes valores fica de fora em qualquer classe.
+excluded_access:
+  - private
+  - "no"

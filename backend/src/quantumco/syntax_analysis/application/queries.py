@@ -1,0 +1,33 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+
+@dataclass(frozen=True, slots=True)
+class SyntaxMap:
+    """Trechos com geometria (WGS84) e medidas, prontos para o navegador."""
+
+    analysis_id: str
+    manifest: Mapping[str, Any]
+    links_geojson: bytes
+
+
+class SyntaxMapReader(Protocol):
+    def current(self) -> SyntaxMap | None: ...
+
+
+class NoAnalysisError(LookupError):
+    pass
+
+
+class GetSyntaxMap:
+    def __init__(self, reader: SyntaxMapReader) -> None:
+        self._reader = reader
+
+    def __call__(self) -> SyntaxMap:
+        current = self._reader.current()
+        if current is None:
+            raise NoAnalysisError("nenhuma análise sintática; rode `quantumco analysis run`")
+        return current

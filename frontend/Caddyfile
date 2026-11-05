@@ -1,0 +1,25 @@
+# Usado pelo nixpacks.toml do frontend. O Easypanel termina o HTTPS na frente.
+# API_UPSTREAM: endereço interno da API no Easypanel (ex.: space-syntax_api:8000).
+{
+	admin off
+}
+
+:{$PORT:80} {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy {$API_UPSTREAM:api:8000}
+	}
+
+	handle /health {
+		reverse_proxy {$API_UPSTREAM:api:8000}
+	}
+
+	handle {
+		root * /app/dist
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		try_files {path} /index.html
+		file_server
+	}
+}

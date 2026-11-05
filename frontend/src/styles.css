@@ -1,0 +1,548 @@
+/* Tokens da marca Quantumco (Claude Design: "Quantumco Brand" e "Quantumco App"). */
+:root {
+  --vacuum: #050607; /* fundo principal */
+  --map-bg: #07090a;
+  --graphite: #0f1213; /* superfícies */
+  --white: #f4f6f5;
+  --beam-green: #2bd46b;
+  --beam-blue: #3b8cff;
+  --text: var(--white);
+  --text-soft: #c9cfd1;
+  --text-muted: #9ba3a6;
+  --text-faint: #6e777a;
+  --line: rgba(244, 246, 245, 0.07);
+  --line-strong: rgba(244, 246, 245, 0.14);
+  --glass: rgba(12, 15, 16, 0.84);
+  --glass-card: rgba(244, 246, 245, 0.07);
+  --danger: #ff6b5e;
+  --focus: var(--beam-green);
+  --font-sans: "Outfit", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --panel-width: 380px;
+  --inset: 20px;
+  color-scheme: dark;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 300;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--vacuum);
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+a {
+  color: var(--beam-green);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--beam-blue);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+}
+
+code {
+  font-size: 0.8em;
+  color: var(--text-soft);
+}
+
+strong {
+  font-weight: 500;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ layout */
+
+.app {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  background: var(--map-bg);
+}
+
+.map-area,
+.map {
+  position: absolute;
+  inset: 0;
+}
+
+.panel {
+  position: absolute;
+  top: var(--inset);
+  bottom: var(--inset);
+  left: var(--inset);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  width: var(--panel-width);
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid rgba(244, 246, 245, 0.1);
+  border-radius: 24px;
+  background: var(--glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.panel {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(244, 246, 245, 0.18) transparent;
+}
+
+.panel-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px 28px;
+  border-bottom: 1px solid var(--line);
+}
+
+@media (max-width: 760px) {
+  :root {
+    --inset: 10px;
+  }
+  .panel {
+    top: auto;
+    right: var(--inset);
+    width: auto;
+    max-height: 48vh;
+    border-radius: 20px;
+  }
+  .panel-section {
+    padding: 18px 20px;
+  }
+}
+
+/* ------------------------------------------------------------------ marca */
+
+.brand {
+  gap: 14px;
+  padding-top: 28px;
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-icon {
+  flex: none;
+  color: var(--white);
+}
+
+.wordmark {
+  font-size: 14px;
+  font-weight: 300;
+  letter-spacing: 0.4em;
+}
+
+.city {
+  margin-left: auto;
+  font-size: 20px;
+  font-weight: 300;
+  color: var(--beam-green);
+}
+
+.brand p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------------ campos e controles */
+
+.label {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.segmented {
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--vacuum);
+}
+
+.segmented-2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.segmented-3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.segmented-5 {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.segmented-5 button {
+  font-size: 12px !important;
+  padding: 0 2px;
+}
+
+.dot.dot-warn {
+  background: #e3dc2e;
+}
+
+.metric {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.metric-label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.metric-value {
+  display: block;
+  font-size: 40px;
+  font-weight: 200;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-dot {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+}
+
+.segmented button {
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-soft);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 300;
+  cursor: pointer;
+}
+
+.segmented.mono button {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.segmented button[aria-checked="true"] {
+  background: var(--white);
+  color: var(--vacuum);
+  font-weight: 400;
+}
+
+.segmented button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.ramp {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  height: 10px;
+}
+
+.ramp span:first-child {
+  border-radius: 2px 0 0 2px;
+}
+
+.ramp span:last-child {
+  border-radius: 0 2px 2px 0;
+}
+
+.ramp-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.notice {
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--beam-blue);
+}
+
+.legend {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.swatch {
+  flex: none;
+  width: 28px;
+}
+
+.swatch-buffer {
+  height: 2px;
+  background: #4a5155;
+}
+
+.swatch-outline {
+  height: 0;
+  border-top: 2px dashed var(--text-soft);
+}
+
+/* ------------------------------------------------------------------ cartões */
+
+.hint {
+  padding: 18px;
+  border: 1px dashed rgba(244, 246, 245, 0.18);
+  border-radius: 16px;
+  color: var(--text-muted);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  background: var(--glass-card);
+}
+
+.card p {
+  margin: 0;
+}
+
+.card-error {
+  border-color: rgba(255, 107, 94, 0.4);
+}
+
+.card-error p:first-of-type {
+  color: var(--danger);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-title {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+}
+
+.close {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.close:hover {
+  color: var(--white);
+}
+
+.button-ghost {
+  align-self: flex-start;
+  padding: 9px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.button-ghost:hover {
+  border-color: var(--beam-green);
+  color: var(--beam-green);
+}
+
+.muted {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.small {
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------------ dados */
+
+.facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.facts dt {
+  color: var(--text-muted);
+}
+
+.facts dd {
+  margin: 0;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.stat-value {
+  display: block;
+  font-size: 30px;
+  white-space: nowrap;
+  font-weight: 200;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.footer {
+  gap: 4px;
+  margin-top: auto;
+  border-bottom: 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.footer p {
+  margin: 0;
+}
+
+/* ------------------------------------------------------------------ controles do MapLibre */
+
+.maplibregl-ctrl-top-right {
+  top: calc(var(--inset) - 10px);
+  right: calc(var(--inset) - 10px);
+}
+
+.maplibregl-ctrl-group {
+  overflow: hidden;
+  border: 1px solid rgba(244, 246, 245, 0.1) !important;
+  border-radius: 16px !important;
+  background: var(--glass) !important;
+  box-shadow: none !important;
+}
+
+.maplibregl-ctrl-group button {
+  width: 44px !important;
+  height: 44px !important;
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--line) !important;
+}
+
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1);
+}
+
+.maplibregl-ctrl-group button:hover {
+  background: rgba(244, 246, 245, 0.08) !important;
+}
+
+.maplibregl-ctrl-attrib {
+  background: transparent !important;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+
+.maplibregl-ctrl-attrib a {
+  color: var(--text-faint);
+}
+
+.maplibregl-ctrl-attrib.maplibregl-compact {
+  background: var(--glass) !important;
+}
+
+.maplibregl-ctrl-attrib-button {
+  filter: invert(1);
+}
+
+.maplibregl-ctrl-scale {
+  border-color: rgba(244, 246, 245, 0.7) !important;
+  background: transparent !important;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(244, 246, 245, 0.7) !important;
+}
+
+@media (max-width: 760px) {
+  .maplibregl-ctrl-bottom-right {
+    display: none;
+  }
+}

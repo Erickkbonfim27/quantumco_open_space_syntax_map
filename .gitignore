@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+*.egg-info/
+dist/
+
+# Node
+node_modules/
+
+# Dados gerados (releases vão para o RustFS, não para o git)
+data/
+
+# SO / editores
+.DS_Store
+.idea/
+.vscode/
+
+# Ambiente
+.env
+.env.*
+!.env.example
+
+frontend/dist/

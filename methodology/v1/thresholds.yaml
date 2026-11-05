@@ -1,0 +1,13 @@
+# Limiares PRÉ-REGISTRADOS (Q17, Q27). Mudar exige subir methodology/v1/VERSION.
+stability:
+  spearman_length_weighted_min: 0.85
+  jaccard_top10_min: 0.70
+profile_2x2:
+  high_cut_top_fraction: 0.20     # ponderado por extensão
+axis_definition:
+  top_fraction: 0.10
+engine_equivalence:
+  node_count: exact
+  total_depth_rel_tol: 1.0e-5
+  choice_rel_tol: 1.0e-5
+  ranking: identical

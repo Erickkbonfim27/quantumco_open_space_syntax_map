@@ -1,0 +1,11 @@
+# Regras de limpeza (doc. metodológico, Q16, Q44). Status indica o que já está implementado.
+connectivity: osm_shared_node     # pontes/túneis só conectam por nó OSM compartilhado (implementado)
+keep_largest_component: true      # Q44 (implementado)
+dual_carriageway_merge:           # Q16 (pendente)
+  enabled: true
+  require_opposite_oneway: true
+  require_same_name_or_ref: true
+  max_distance_m: 30
+  forbid_water_between: true
+collapse_roundabouts: true        # pendente
+remove_micro_segments_m: null     # a definir antes da primeira rodada

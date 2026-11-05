@@ -1,0 +1,5 @@
+# Área de estudo. Seleção por código IBGE + relação OSM, nunca por nome (Q14).
+ibge_code: "4202909"        # Brusque-SC
+osm_relation_id: 296588
+buffer_m: 7000              # faixa externa para reduzir efeito de borda (Q14)
+crs_epsg: 31982             # SIRGAS 2000 / UTM 22S

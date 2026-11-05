@@ -1,0 +1,9 @@
+# Análise angular de segmentos (passo 2). Formato de produção: Q47.
+engine: cityseer                  # produção; juiz = depthmapX (CI, pendente)
+preliminary: true                 # vira false quando a equivalência com o depthmapX passar no CI
+radii_m: [400, 800, 1200, 2000]
+radius_n_m: 100000                # "n": maior que qualquer distância na área de estudo
+measures: [nain, nach]            # Hillier, Yang & Turner (2012)
+classes: 7                        # ver symbology.yaml
+percentile_scope: result_zone     # percentis só sobre trechos de Brusque, ponderados por extensão
+link_aggregation: length_weighted_mean   # das retas explodidas para o trecho

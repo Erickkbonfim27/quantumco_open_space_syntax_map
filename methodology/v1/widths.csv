@@ -1,0 +1,17 @@
+highway,lc419_hierarchy,right_of_way_m,note
+trunk,estrutural,16.5,LC 419/2024 Art. 43; rodovias SC seguem o Anexo VI
+trunk_link,estrutural,16.5,
+primary,estrutural,16.5,
+primary_link,estrutural,16.5,
+secondary,arterial,14.0,
+secondary_link,arterial,14.0,
+tertiary,coletora,12.0,
+tertiary_link,coletora,12.0,
+residential,local,11.5,
+unclassified,local,11.5,
+road,local,11.5,
+service,local,11.5,
+living_street,local_compartilhada,8.0,
+pedestrian,,6.0,sem gabarito na LC 419
+steps,,3.0,sem gabarito na LC 419
+track,rural,8.0,só no buffer

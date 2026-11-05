@@ -1,0 +1,22 @@
+# Serviço "web" (React estático + Caddy) no Easypanel.
+#   Origem: GitHub, build path "/frontend". Builder: Nixpacks. Porta interna: 80.
+#   Variável obrigatória: API_UPSTREAM = endereço interno da API (ex.: space-syntax_api:8000).
+#   Variáveis VITE_* (opcionais) são lidas no BUILD.
+
+providers = []
+
+[phases.setup]
+nixPkgs = ["nodejs_24", "caddy"]
+
+[phases.install]
+cmds = [
+  # pnpm fixado na versão do packageManager (o corepack não escreve no /nix/store)
+  "npm install --prefix /opt/pnpm --no-audit --no-fund pnpm@11.28.9",
+  "/opt/pnpm/node_modules/.bin/pnpm install --frozen-lockfile",
+]
+
+[phases.build]
+cmds = ["/opt/pnpm/node_modules/.bin/pnpm build"]
+
+[start]
+cmd = "caddy run --config /app/Caddyfile --adapter caddyfile"
