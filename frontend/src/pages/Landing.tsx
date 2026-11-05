@@ -27,7 +27,7 @@ export function Landing() {
           Ver o mapa de Brusque
         </Link>
         {user ? (
-          <button type="button" className="pill pill-light" onClick={() => navigate("/painel")}>
+          <button type="button" className="pill pill-light topbar-cta" onClick={() => navigate("/painel")}>
             Meus cenários
           </button>
         ) : (
@@ -35,7 +35,7 @@ export function Landing() {
             <button type="button" className="pill pill-outline" onClick={() => navigate("/entrar")}>
               Entrar
             </button>
-            <button type="button" className="pill pill-light" onClick={() => navigate("/criar-conta")}>
+            <button type="button" className="pill pill-light topbar-cta" onClick={() => navigate("/criar-conta")}>
               Criar conta
             </button>
           </>
@@ -56,8 +56,11 @@ export function Landing() {
               →
             </span>
           </button>
+          <button type="button" className="pill pill-outline pill-lg" onClick={() => navigate("/map")}>
+            Ver o mapa de Brusque
+          </button>
           {!user && (
-            <button type="button" className="pill pill-outline pill-lg" onClick={() => navigate("/entrar")}>
+            <button type="button" className="pill pill-ghost pill-lg" onClick={() => navigate("/entrar")}>
               Já tenho conta
             </button>
           )}

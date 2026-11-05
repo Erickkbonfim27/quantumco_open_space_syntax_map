@@ -3,17 +3,11 @@ import { Link, useNavigate } from "react-router";
 
 import { QuantumcoIcon } from "../brand/QuantumcoIcon";
 import { Footer } from "../components/Footer";
-import {
-  type MapFlags,
-  MapView,
-  type MapViewHandle,
-  OVERLAY_COLOR,
-  type Overlay,
-  type Selection,
-} from "../features/map/MapView";
+import { LayerToggles, MapTabs, MeasureSwitch, OPEN_LAYERS, RadiusSection } from "../features/map/MapPanels";
+import { DEFAULT_FLAGS, type MapFlags, MapView, type MapViewHandle, type Selection } from "../features/map/MapView";
 import { ScenarioPanel } from "../features/map/ScenarioPanel";
 import { SelectionPanel } from "../features/map/SelectionPanel";
-import { RADII, SYNTAX_PALETTE } from "../features/map/syntaxPalette";
+import { RADII } from "../features/map/syntaxPalette";
 import { ReleaseInfo } from "../features/release/ReleaseInfo";
 import { useSnapshotData } from "../features/release/useSnapshotData";
 import { LoadingScreen } from "../features/workspace/LoadingScreen";
@@ -25,22 +19,10 @@ const fmt = (v: number, d: number) =>
 
 const ICONS = {
   select: "M5 3l14 8-6 1.5L10 19z",
-  layers: "M12 3l9 5-9 5-9-5z M3 13l9 5 9-5",
   draw: "M12 3l8 6-3 10H7L4 9z",
+  layers: "M12 3l9 5-9 5-9-5z M3 13l9 5 9-5",
   fit: "M4 9V4h5 M20 9V4h-5 M4 15v5h5 M20 15v5h-5",
 } as const;
-
-const BASE_LAYERS: [keyof MapFlags, string][] = [
-  ["net", "Malha sintática"],
-  ["ent", "Entorno (faixa de 7 km)"],
-  ["lim", "Limite de Brusque"],
-];
-const OPEN_LAYERS: [Overlay, string, string][] = [
-  ["risco", "Áreas de risco", "SGB 2018–19"],
-  ["inundacao", "Inundação (suscetib.)", "IPT/SGB 2013"],
-  ["saude", "Saúde", "CNES"],
-  ["escolas", "Escolas", "CNEFE 2022"],
-];
 
 export function PublicMap() {
   const state = useSnapshotData();
@@ -52,15 +34,7 @@ export function PublicMap() {
   const [radius, setRadius] = useState<RadiusKey>("n");
   const [cursor, setCursor] = useState("—");
   const [overlayError, setOverlayError] = useState<string | null>(null);
-  const [flags, setFlags] = useState<MapFlags>({
-    net: true,
-    ent: true,
-    lim: true,
-    inundacao: false,
-    risco: false,
-    saude: false,
-    escolas: false,
-  });
+  const [flags, setFlags] = useState<MapFlags>(DEFAULT_FLAGS);
 
   const data = state.status === "ready" ? state.data : null;
 
@@ -88,20 +62,19 @@ export function PublicMap() {
 
   const radiusLabel = RADII.find((r) => r.key === radius)?.label ?? radius;
   const legendTitle = `${measure === "nain" ? "INTEGRAÇÃO (NAIN)" : "ESCOLHA (NACH)"} · R ${radiusLabel}`;
-  const isIntegration = measure === "nain";
+  const polygonsTo = user ? "/painel" : "/entrar";
   const toggle = (key: keyof MapFlags) => setFlags((f) => ({ ...f, [key]: !f[key] }));
-  const goPolygons = () => navigate(user ? "/painel" : "/entrar");
 
   const tools: { key: keyof typeof ICONS; title: string; on: boolean }[] = [
     { key: "select", title: "Selecionar trecho", on: true },
-    { key: "layers", title: "Malha sintática", on: flags.net },
     { key: "draw", title: "Desenhar polígono (nos seus cenários)", on: false },
+    { key: "layers", title: "Malha sintática", on: flags.net },
     { key: "fit", title: "Enquadrar Brusque", on: false },
   ];
 
   function handleTool(key: keyof typeof ICONS) {
     if (key === "layers") toggle("net");
-    if (key === "draw") goPolygons();
+    if (key === "draw") navigate(polygonsTo);
     if (key === "fit") mapRef.current?.fitAll();
   }
 
@@ -111,26 +84,9 @@ export function PublicMap() {
         <Link to="/" className="ws-brand" aria-label="Início">
           <QuantumcoIcon size={32} />
         </Link>
-        <nav className="tabs" aria-label="Ferramentas">
-          <span className="tab tab-on">Mapa sintático</span>
-          <Link to={user ? "/painel" : "/entrar"} className="tab">
-            Polígonos
-          </Link>
-          <span className="tab tab-off" title="Em breve">
-            Comparar
-          </span>
-          <span className="tab tab-off" title="Em breve">
-            Relatórios
-          </span>
-        </nav>
+        <MapTabs active="mapa" polygonsTo={polygonsTo} />
         <span className="spacer" />
-        <div className="segmented segmented-2 ws-measure" role="radiogroup" aria-label="Medida">
-          {(["nain", "nach"] as const).map((m) => (
-            <button key={m} type="button" role="radio" aria-checked={measure === m} onClick={() => setMeasure(m)}>
-              {m === "nain" ? "Integração" : "Escolha"}
-            </button>
-          ))}
-        </div>
+        <MeasureSwitch measure={measure} onMeasure={setMeasure} className="only-desktop" />
         {user ? (
           <Link to="/painel" className="avatar" title={`${user.name} · seus cenários`}>
             {user.initials}
@@ -140,7 +96,7 @@ export function PublicMap() {
             <Link to="/entrar" className="pill pill-outline pill-sm">
               Entrar
             </Link>
-            <Link to="/criar-conta" className="pill pill-green pill-sm">
+            <Link to="/criar-conta" className="pill pill-green pill-sm only-desktop">
               Criar conta
             </Link>
           </div>
@@ -166,6 +122,9 @@ export function PublicMap() {
       </nav>
 
       <aside className="ws-side" aria-label="Painel do mapa sintático">
+        <div className="ws-mobile-measure only-mobile">
+          <MeasureSwitch measure={measure} onMeasure={setMeasure} />
+        </div>
         <div className="ws-cards">
           <div className="mini-card">
             <span className="muted small">Trechos</span>
@@ -180,75 +139,27 @@ export function PublicMap() {
           </div>
           <div className="mini-card mini-wide">
             <div className="row-between muted small">
-              <span>Análise angular de segmentos</span>
-              <span className="mono">{data.analysis?.engine ?? "—"}</span>
+              <span>Recorte uma área da cidade</span>
+              <span className="mono">N1–N6</span>
             </div>
             <span className="small soft">
-              Integração (NAIN) e escolha (NACH) em 5 raios; cores por percentil da extensão de rua
-              de Brusque (7 classes).
+              Desenhe polígonos e leia população, renda, entorno, equipamentos e risco junto da
+              sintaxe espacial.
             </span>
+            <Link to={polygonsTo} className="pill pill-green pill-sm ws-card-cta">
+              {user ? "Abrir meus cenários" : "Criar conta grátis"}
+            </Link>
           </div>
         </div>
 
-        <div className="ws-section ws-section-first">
-          <span className="label">RAIO</span>
-          <div className="segmented segmented-5 mono" role="radiogroup" aria-label="Raio">
-            {RADII.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                role="radio"
-                aria-checked={option.key === radius}
-                onClick={() => setRadius(option.key)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <div className="ramp" aria-hidden="true">
-            {SYNTAX_PALETTE.map((c) => (
-              <span key={c} style={{ background: c }} />
-            ))}
-          </div>
-          <div className="row-between muted small">
-            <span>{isIntegration ? "Menos integrado" : "Menos escolhido"}</span>
-            <span>{isIntegration ? "Mais integrado" : "Mais escolhido"}</span>
-          </div>
-        </div>
+        <RadiusSection measure={measure} radius={radius} onRadius={setRadius} />
 
         <div className="ws-embed">
           {data.scenario && <ScenarioPanel scenario={data.scenario} measure={measure} radius={radius} />}
-          <SelectionPanel
-            selection={selection}
-            measure={measure}
-            radius={radius}
-            onClose={() => setSelection(null)}
-          />
+          <SelectionPanel selection={selection} measure={measure} radius={radius} onClose={() => setSelection(null)} />
         </div>
 
-        <div className="ws-section">
-          <span className="label">CAMADAS DO MAPA</span>
-          {BASE_LAYERS.map(([key, label]) => (
-            <button key={key} type="button" role="switch" aria-checked={flags[key]} className="toggle" onClick={() => toggle(key)}>
-              <span className={flags[key] ? "toggle-track toggle-on" : "toggle-track"}>
-                <span className="toggle-knob" />
-              </span>
-              {label}
-            </button>
-          ))}
-          <span className="label ws-sublabel">DADOS ABERTOS</span>
-          {OPEN_LAYERS.map(([key, label, source]) => (
-            <button key={key} type="button" role="switch" aria-checked={flags[key]} className="toggle" onClick={() => toggle(key)}>
-              <span className={flags[key] ? "toggle-track toggle-on" : "toggle-track"}>
-                <span className="toggle-knob" />
-              </span>
-              <span className="toggle-swatch" style={{ background: OVERLAY_COLOR[key] }} aria-hidden="true" />
-              {label}
-              <span className="mono muted-2 small toggle-source">{source}</span>
-            </button>
-          ))}
-          {overlayError && <div className="form-error">Não foi possível carregar a camada “{overlayError}”.</div>}
-        </div>
+        <LayerToggles flags={flags} onToggle={toggle} error={overlayError} />
 
         <div className="ws-embed">
           <ReleaseInfo manifest={data.manifest} analysis={data.analysis} />

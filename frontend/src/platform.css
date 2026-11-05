@@ -1489,3 +1489,65 @@
     display: none;
   }
 }
+
+/* ------------------------------------------------------------------ utilitários de tela */
+
+.only-mobile {
+  display: none !important;
+}
+
+@media (max-width: 900px) {
+  .only-desktop {
+    display: none !important;
+  }
+  .only-mobile {
+    display: revert !important;
+  }
+  span.only-mobile,
+  a.only-mobile {
+    display: inline-flex !important;
+  }
+  div.only-mobile {
+    display: block !important;
+  }
+  /* abas curtas visíveis nos dois mapas */
+  .ws-bar .ws-tabs {
+    display: flex !important;
+    gap: 2px;
+  }
+  .ws-bar .ws-tabs .tab {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+  .ws-mobile-measure {
+    padding: 14px 12px 0;
+  }
+  .ws-mobile-measure .ws-measure {
+    width: 100%;
+  }
+}
+
+.ws-card-cta {
+  align-self: flex-start;
+}
+
+.pill-ghost {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--text-soft);
+}
+
+/* filtros do painel: quebram linha em vez de estourar a tela */
+.filters {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 860px) {
+  .topbar-cta {
+    display: none;
+  }
+  .hero-actions > * {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}

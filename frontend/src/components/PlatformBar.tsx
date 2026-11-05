@@ -29,6 +29,9 @@ export function PlatformBar({ active }: { active: "cenarios" }) {
         </a>
       </nav>
       <span className="spacer" />
+      <Link to="/map" className="pill pill-outline pill-sm only-mobile">
+        Mapa
+      </Link>
       {user && (
         <div className="user-chip">
           <span className="user-text">

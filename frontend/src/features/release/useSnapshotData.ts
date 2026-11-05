@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { config } from "../../config";
+import { ApiError, apiCached } from "../../lib/api";
 import type {
   AnalysisManifest,
   Manifest,
@@ -24,13 +24,15 @@ class HttpError extends Error {
   }
 }
 
-async function getJson<T>(path: string, signal: AbortSignal): Promise<T> {
-  const response = await fetch(`${config.apiUrl}/api/v1/${path}`, { signal });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { detail?: string } | null;
-    throw new HttpError(body?.detail ?? `${path}: HTTP ${response.status}`, response.status);
+/** Leitura com cache compartilhado (ver `apiCached`); um pedido já cancelado nem começa. */
+async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  signal?.throwIfAborted();
+  try {
+    return await apiCached<T>(path);
+  } catch (error) {
+    if (error instanceof ApiError) throw new HttpError(error.message, error.status);
+    throw error;
   }
-  return (await response.json()) as T;
 }
 
 /** Mapa sintático quando a análise existe; senão, só a rede (503 em /syntax). */

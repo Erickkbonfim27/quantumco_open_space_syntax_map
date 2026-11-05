@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from quantumco.bootstrap.settings import Settings
-from quantumco.platform.postgres import pool
+from quantumco.platform.postgres import shared_pool
 from quantumco.shared_kernel.clock import SystemClock
 from quantumco.territory.application.import_layers import ImportTerritory
 from quantumco.territory.application.queries import GetPolygonProfile
@@ -19,10 +19,10 @@ def import_territory_use_case(settings: Settings) -> ImportTerritory:
     return ImportTerritory(
         # CNEFE antes dos setores não importa: o peso dasimétrico é calculado na consulta
         sources=[CensusTractsSource(cache), CnefeSource(cache), SgbSource(), CnesSource()],
-        repository=PostgisTerritoryRepository(pool(settings.require_database(), max_size=2)),
+        repository=PostgisTerritoryRepository(shared_pool(settings.require_database())),
         clock=SystemClock(),
     )
 
 
 def territory_profile_query(settings: Settings) -> GetPolygonProfile:
-    return GetPolygonProfile(PostgisTerritoryReader(pool(settings.require_database(), max_size=3)))
+    return GetPolygonProfile(PostgisTerritoryReader(shared_pool(settings.require_database())))

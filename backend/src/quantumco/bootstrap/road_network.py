@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from quantumco.bootstrap.settings import Settings
-from quantumco.platform.postgres import pool
+from quantumco.platform.postgres import shared_pool
 from quantumco.road_network.application.build_snapshot import BuildSnapshot
 from quantumco.road_network.application.queries import GetCurrentNetwork
 from quantumco.road_network.infrastructure.overpass_source import OverpassWaySource
@@ -27,4 +27,4 @@ def build_snapshot_use_case(settings: Settings, as_of: datetime | None = None) -
 
 
 def current_network_query(settings: Settings) -> GetCurrentNetwork:
-    return GetCurrentNetwork(PostgisNetworkReader(pool(settings.require_database())))
+    return GetCurrentNetwork(PostgisNetworkReader(shared_pool(settings.require_database())))

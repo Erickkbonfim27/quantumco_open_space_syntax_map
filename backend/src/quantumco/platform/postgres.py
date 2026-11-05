@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import functools
 import logging
+import time
 from pathlib import Path
+from typing import Any
 
 import psycopg
 from psycopg_pool import ConnectionPool
@@ -35,17 +38,46 @@ def connect(url: str) -> psycopg.Connection[tuple[object, ...]]:
     return psycopg.connect(dsn(url), **_CONNECTION_KWARGS)  # type: ignore[arg-type]
 
 
+# Uma conexão parada há mais que isto é testada (1 ida e volta) antes de ser entregue; as usadas
+# há pouco vão direto. Testar sempre custava uma viagem extra em todo pedido.
+_CHECK_AFTER_IDLE_S = 20.0
+_last_used: dict[int, float] = {}
+
+
+def _mark_used(conn: psycopg.Connection[Any]) -> None:
+    _last_used[id(conn)] = time.monotonic()
+
+
+def _check_if_stale(conn: psycopg.Connection[Any]) -> None:
+    if time.monotonic() - _last_used.get(id(conn), 0.0) > _CHECK_AFTER_IDLE_S:
+        ConnectionPool.check_connection(conn)
+
+
 def pool(url: str, max_size: int = 4) -> ConnectionPool:
+    """Pool novo (CLI e testes). A API usa `shared_pool`, um só para todos os contextos."""
     return ConnectionPool(
         dsn(url),
         min_size=1,
         max_size=max_size,
         open=True,
-        kwargs=_CONNECTION_KWARGS,
-        check=ConnectionPool.check_connection,  # testa antes de entregar; troca se morreu
+        # autocommit: leitura sem BEGIN/COMMIT (menos 2 idas e voltas); escrita com mais de um
+        # comando usa `conn.transaction()` explícito nos repositórios
+        kwargs={**_CONNECTION_KWARGS, "autocommit": True},
+        configure=_mark_used,
+        reset=_mark_used,
+        check=_check_if_stale,
         max_idle=120,  # fecha conexões paradas há mais de 2 min
         timeout=15,
     )
+
+
+@functools.cache
+def shared_pool(url: str) -> ConnectionPool:
+    """O pool da aplicação: um por processo, compartilhado por todos os contextos."""
+    started = time.perf_counter()
+    shared = pool(url, max_size=10)
+    log.info("pool do PostGIS aberto em %.0f ms", (time.perf_counter() - started) * 1000)
+    return shared
 
 
 def migrate(url: str) -> list[str]:

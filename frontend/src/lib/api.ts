@@ -34,3 +34,17 @@ export async function api<T>(path: string, init: Init = {}): Promise<T> {
   }
   return body as T;
 }
+
+// Dados fixos entre publicações (malha, análise, município): baixados uma vez por sessão do
+// navegador e reaproveitados ao trocar de página (o mapa sintático tem ~10 MB).
+const cache = new Map<string, Promise<unknown>>();
+
+export function apiCached<T>(path: string): Promise<T> {
+  let request = cache.get(path) as Promise<T> | undefined;
+  if (!request) {
+    request = api<T>(path);
+    cache.set(path, request);
+    request.catch(() => cache.delete(path)); // erro não fica em cache
+  }
+  return request;
+}

@@ -7,7 +7,7 @@ from quantumco.identity.infrastructure.postgis_identity import (
     PostgisSessionStore,
     PostgisUserRepository,
 )
-from quantumco.platform.postgres import pool
+from quantumco.platform.postgres import shared_pool
 from quantumco.scenarios.application.workspaces import Workspaces
 from quantumco.scenarios.infrastructure.postgis_workspaces import PostgisWorkspaceRepository
 from quantumco.shared_kernel.clock import SystemClock
@@ -16,7 +16,7 @@ from quantumco.syntax_analysis.infrastructure.postgis_polygon_stats import Postg
 
 
 def build_platform(settings: Settings) -> tuple[Authentication, Workspaces, GetPolygonStats]:
-    shared = pool(settings.require_database(), max_size=6)
+    shared = shared_pool(settings.require_database())
     clock = SystemClock()
     auth = Authentication(
         users=PostgisUserRepository(shared),

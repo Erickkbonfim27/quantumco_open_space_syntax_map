@@ -2,7 +2,7 @@ import type { Feature, Polygon, Position } from "geojson";
 import { useEffect, useRef, useState } from "react";
 
 import type { PolygonProps, PolygonStats, TerritoryProfile } from "../../lib/platformTypes";
-import type { Measure, NetworkCollection } from "../../lib/types";
+import type { Measure, NetworkCollection, RadiusKey } from "../../lib/types";
 import { SYNTAX_PALETTE } from "../map/syntaxPalette";
 import { inRing } from "./geometry";
 
@@ -42,6 +42,7 @@ interface LayerStackProps {
   stats: PolygonStats | undefined;
   profile: Profile;
   measure: Measure;
+  radius: RadiusKey;
   network: NetworkCollection;
   onExport: () => void;
   onClose: () => void;
@@ -59,6 +60,7 @@ function drawTile(
   polygon: Feature<Polygon, PolygonProps>,
   network: NetworkCollection,
   measure: Measure,
+  radius: RadiusKey,
   profile: Profile,
 ) {
   const g = canvas.getContext("2d");
@@ -98,7 +100,7 @@ function drawTile(
       const coords = f.geometry.coordinates;
       const mid = coords[Math.floor(coords.length / 2)] ?? coords[0];
       if (!mid || !inRing(ring, mid[0] ?? 0, mid[1] ?? 0)) continue;
-      const raw = f.properties[`c_${measure}_n`];
+      const raw = f.properties[`c_${measure}_${radius}`];
       const cls = typeof raw === "number" ? raw : null;
       g.strokeStyle = color(cls);
       g.lineWidth = width(cls);
@@ -285,6 +287,7 @@ export function LayerStack({
   stats,
   profile,
   measure,
+  radius,
   network,
   onExport,
   onClose,
@@ -302,9 +305,9 @@ export function LayerStack({
   useEffect(() => {
     for (const layer of LAYERS) {
       const canvas = tiles.current[layer.key];
-      if (canvas) drawTile(canvas, layer.key, polygon, network, measure, profile);
+      if (canvas) drawTile(canvas, layer.key, polygon, network, measure, radius, profile);
     }
-  }, [polygon, network, measure, profile]);
+  }, [polygon, network, measure, radius, profile]);
 
   const ring = polygon.geometry.coordinates[0] ?? [];
   let cx = 0;
@@ -313,7 +316,7 @@ export function LayerStack({
     cx += x / ring.length;
     cy += y / ring.length;
   }
-  const n = stats?.network.by_radius.n;
+  const n = stats?.network.by_radius[radius];
   const mean = n?.[measure];
   const classesKm = n?.[`${measure}_classes_km`] ?? [];
   const totalKm = classesKm.reduce((a, b) => a + b, 0) || 1;
@@ -327,7 +330,7 @@ export function LayerStack({
             [`${fmt(stats.network.km, 1)} km`, "de ruas"],
             [
               typeof mean === "number" ? fmt(mean, 3) : "–",
-              measure === "nain" ? "integração (NAIN) · n" : "escolha (NACH) · n",
+              `${measure === "nain" ? "integração (NAIN)" : "escolha (NACH)"} · R ${radius === "n" ? "n" : radius}`,
             ],
           ]
         : [

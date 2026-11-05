@@ -3,12 +3,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { QuantumcoIcon } from "../brand/QuantumcoIcon";
-import { SYNTAX_PALETTE } from "../features/map/syntaxPalette";
+import { Footer } from "../components/Footer";
+import { LayerToggles, MapTabs, MeasureSwitch, OPEN_LAYERS, RadiusSection } from "../features/map/MapPanels";
+import { DEFAULT_FLAGS, type MapFlags, MapView, type MapViewHandle, type Selection } from "../features/map/MapView";
+import { SelectionPanel } from "../features/map/SelectionPanel";
+import { RADII, SYNTAX_PALETTE } from "../features/map/syntaxPalette";
+import { ReleaseInfo } from "../features/release/ReleaseInfo";
 import { medianClass } from "../features/workspace/geometry";
 import { LayerStack } from "../features/workspace/LayerStack";
 import { LoadingScreen } from "../features/workspace/LoadingScreen";
-import { type MapFlags, PolygonMap, type PolygonMapHandle } from "../features/workspace/PolygonMap";
-import { api, ApiError } from "../lib/api";
+import { api, ApiError, apiCached } from "../lib/api";
 import type {
   PolygonCollection,
   PolygonStats,
@@ -22,6 +26,7 @@ import type {
   Measure,
   MunicipalityCollection,
   NetworkCollection,
+  RadiusKey,
   SnapshotData,
 } from "../lib/types";
 
@@ -56,7 +61,7 @@ export function WorkspaceMap() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const { user } = useSession();
-  const mapRef = useRef<PolygonMapHandle>(null);
+  const mapRef = useRef<MapViewHandle>(null);
 
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [data, setData] = useState<SnapshotData | null>(null);
@@ -68,7 +73,10 @@ export function WorkspaceMap() {
   const [measure, setMeasure] = useState<Measure>("nain");
   const [tool, setTool] = useState<"select" | "draw">("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [flags, setFlags] = useState<MapFlags>({ net: true, ent: true, lim: true, lab: true });
+  const [flags, setFlags] = useState<MapFlags>(DEFAULT_FLAGS);
+  const [radius, setRadius] = useState<RadiusKey>("n");
+  const [link, setLink] = useState<Selection | null>(null);
+  const [overlayError, setOverlayError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [draftVertices, setDraftVertices] = useState(0);
   const [cursor, setCursor] = useState<string>("—");
@@ -108,26 +116,28 @@ export function WorkspaceMap() {
     let alive = true;
     (async () => {
       try {
-        const ws = await api<Workspace>(`workspaces/${id}`);
-        if (!alive) return;
-        setWorkspace(ws);
-        setMeasure(ws.measure);
-        setStep(1);
-        const [manifest, municipality] = await Promise.all([
-          api<Manifest>("network/manifest"),
-          api<MunicipalityCollection>("network/municipality"),
-        ]);
-        setStep(2);
-        const [analysis, network] = await Promise.all([
-          api<AnalysisManifest>("syntax/manifest"),
-          api<NetworkCollection>("syntax/links"),
-        ]);
-        if (!alive) return;
-        setStep(3);
-        await loadStats(ws.features);
+        // tudo em paralelo; as estatísticas dos polígonos chegam depois, sem segurar o mapa
+        const wsReq = api<Workspace>(`workspaces/${id}`).then((ws) => {
+          if (alive) {
+            setWorkspace(ws);
+            setMeasure(ws.measure);
+            setStep((n) => Math.max(n, 1));
+          }
+          return ws;
+        });
+        const baseReq = Promise.all([
+          apiCached<Manifest>("network/manifest"),
+          apiCached<MunicipalityCollection>("network/municipality"),
+        ]).then((r) => (setStep((n) => Math.max(n, 2)), r));
+        const syntaxReq = Promise.all([
+          apiCached<AnalysisManifest>("syntax/manifest"),
+          apiCached<NetworkCollection>("syntax/links"),
+        ]).then((r) => (setStep((n) => Math.max(n, 3)), r));
+        const [ws, [manifest, municipality], [analysis, network]] = await Promise.all([wsReq, baseReq, syntaxReq]);
         if (!alive) return;
         setData({ manifest, municipality, network, analysis, scenario: null });
         setStep(4);
+        void loadStats(ws.features);
       } catch (err) {
         if (alive) setError(err instanceof ApiError ? err.message : String(err));
       }
@@ -223,11 +233,13 @@ export function WorkspaceMap() {
   const all = polygons.features.map((f) => stats[f.properties.id]).filter(Boolean) as PolygonStats[];
   const sumArea = all.reduce((a, s) => a + s.territory.area_km2, 0);
   const sumLinks = all.reduce((a, s) => a + s.network.links, 0);
+  const radiusLabel = RADII.find((r) => r.key === radius)?.label ?? radius;
   const histo = SYNTAX_PALETTE.map((_, i) =>
-    all.reduce((a, s) => a + (s.network.by_radius.n?.[`${measure}_classes_km`]?.[i] ?? 0), 0),
+    all.reduce((a, s) => a + (s.network.by_radius[radius]?.[`${measure}_classes_km`]?.[i] ?? 0), 0),
   );
   const histoMax = Math.max(1e-9, ...histo);
-  const legendTitle = measure === "nain" ? "INTEGRAÇÃO (NAIN) · R n" : "ESCOLHA (NACH) · R n";
+  const legendTitle = `${measure === "nain" ? "INTEGRAÇÃO (NAIN)" : "ESCOLHA (NACH)"} · R ${radiusLabel}`;
+  const toggle = (key: keyof MapFlags) => setFlags((f) => ({ ...f, [key]: !f[key] }));
 
   const tools: { key: keyof typeof ICONS; title: string; on: boolean }[] = [
     { key: "select", title: "Selecionar", on: tool === "select" },
@@ -243,7 +255,7 @@ export function WorkspaceMap() {
       setSelectedId(null);
       setTool("draw");
     }
-    if (key === "layers") setFlags((f) => ({ ...f, net: !f.net }));
+    if (key === "layers") toggle("net");
     if (key === "fit") mapRef.current?.fitAll();
     if (key === "export") exportFeatures();
   }
@@ -251,37 +263,22 @@ export function WorkspaceMap() {
   return (
     <div className="ws">
       <header className="ws-bar">
-        <button type="button" className="pill pill-outline pill-sm" onClick={() => navigate("/painel")}>
-          ← Cenários
+        <button type="button" className="pill pill-outline pill-sm" onClick={() => navigate("/painel")} aria-label="Voltar aos cenários">
+          ←<span className="only-desktop">&nbsp;Cenários</span>
         </button>
-        <QuantumcoIcon size={32} />
-        <nav className="tabs" aria-label="Ferramentas">
-          <Link to="/map" className="tab">
-            Mapa sintático
-          </Link>
-          <span className="tab tab-on">Polígonos</span>
-          <span className="tab tab-off" title="Em breve">
-            Comparar
-          </span>
-          <span className="tab tab-off" title="Em breve">
-            Relatórios
-          </span>
-        </nav>
+        <span className="only-desktop ws-brand">
+          <QuantumcoIcon size={32} />
+        </span>
+        <MapTabs active="poligonos" polygonsTo={`/painel/cenario/${id}`} />
         <span className="spacer" />
         <input
-          className="search search-sm"
+          className="search search-sm only-desktop"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Buscar polígono"
           aria-label="Buscar polígono"
         />
-        <div className="segmented segmented-2 ws-measure" role="radiogroup" aria-label="Medida">
-          {(["nain", "nach"] as const).map((m) => (
-            <button key={m} type="button" role="radio" aria-checked={measure === m} onClick={() => changeMeasure(m)}>
-              {m === "nain" ? "Integração" : "Escolha"}
-            </button>
-          ))}
-        </div>
+        <MeasureSwitch measure={measure} onMeasure={changeMeasure} className="only-desktop" />
         <span className="avatar" title={user?.name}>
           {user?.initials}
         </span>
@@ -306,6 +303,9 @@ export function WorkspaceMap() {
       </nav>
 
       <aside className="ws-side">
+        <div className="ws-mobile-measure only-mobile">
+          <MeasureSwitch measure={measure} onMeasure={changeMeasure} />
+        </div>
         <div className="ws-cards">
           <div className="mini-card">
             <span className="muted small">Área analisada</span>
@@ -321,14 +321,11 @@ export function WorkspaceMap() {
           <div className="mini-card mini-wide">
             <div className="row-between muted small">
               <span>Distribuição nos polígonos</span>
-              <span className="mono">R n</span>
+              <span className="mono">R {radiusLabel}</span>
             </div>
             <div className="histo" aria-hidden="true">
               {histo.map((v, i) => (
-                <span
-                  key={i}
-                  style={{ height: `${Math.round((v / histoMax) * 100)}%`, background: SYNTAX_PALETTE[i] }}
-                />
+                <span key={i} style={{ height: `${Math.round((v / histoMax) * 100)}%`, background: SYNTAX_PALETTE[i] }} />
               ))}
             </div>
           </div>
@@ -363,8 +360,8 @@ export function WorkspaceMap() {
           )}
           {visible.map((f) => {
             const s = stats[f.properties.id];
-            const value = s?.network.by_radius.n?.[measure];
-            const cls = medianClass(s?.network.by_radius.n?.[`${measure}_classes_km`]);
+            const value = s?.network.by_radius[radius]?.[measure];
+            const cls = medianClass(s?.network.by_radius[radius]?.[`${measure}_classes_km`]);
             const on = f.properties.id === selectedId;
             return (
               <li key={f.properties.id}>
@@ -395,61 +392,39 @@ export function WorkspaceMap() {
           })}
         </ul>
 
-        <div className="ws-section">
-          <span className="label">CAMADAS DO MAPA</span>
-          {(
-            [
-              ["net", "Malha sintática"],
-              ["ent", "Entorno (faixa de 7 km)"],
-              ["lim", "Limite de Brusque"],
-              ["lab", "Rótulos dos polígonos"],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              role="switch"
-              aria-checked={flags[key]}
-              className="toggle"
-              onClick={() => setFlags((f) => ({ ...f, [key]: !f[key] }))}
-            >
-              <span className={flags[key] ? "toggle-track toggle-on" : "toggle-track"}>
-                <span className="toggle-knob" />
-              </span>
-              {label}
-            </button>
-          ))}
+        <RadiusSection measure={measure} radius={radius} onRadius={setRadius} />
+
+        <div className="ws-embed">
+          <SelectionPanel selection={link} measure={measure} radius={radius} onClose={() => setLink(null)} />
         </div>
 
-        <div className="ws-section">
-          <span className="label">{legendTitle}</span>
-          <div className="ramp" aria-hidden="true">
-            {SYNTAX_PALETTE.map((c) => (
-              <span key={c} style={{ background: c }} />
-            ))}
-          </div>
-          <div className="row-between muted small">
-            <span>Baixo</span>
-            <span>Alto</span>
-          </div>
+        <LayerToggles flags={flags} onToggle={toggle} withPolygons error={overlayError} />
+
+        <div className="ws-embed">
+          <ReleaseInfo manifest={data.manifest} analysis={data.analysis} />
+          <Footer />
         </div>
       </aside>
 
       <main className="ws-map">
-        <PolygonMap
+        <MapView
           ref={mapRef}
           data={data}
-          polygons={polygons}
           measure={measure}
+          radius={radius}
           flags={flags}
+          selectedId={link?.properties.link_id ?? null}
+          onSelect={setLink}
+          polygons={polygons}
+          selectedPolygonId={selectedId}
+          onSelectPolygon={setSelectedId}
           tool={tool}
-          selectedId={selectedId}
           rightInset={selected ? 740 : 0}
-          onSelect={setSelectedId}
           onDrawComplete={(ring) => void onDrawComplete(ring)}
           onDrawCancel={() => setTool("select")}
           onDraftChange={setDraftVertices}
           onCursor={([lng, lat], zoom) => setCursor(`${fmt(lat, 5)}, ${fmt(lng, 5)} · zoom ${fmt(zoom, 1)}`)}
+          onOverlayError={(o) => setOverlayError(OPEN_LAYERS.find(([k]) => k === o)?.[1] ?? o)}
         />
         <div className="ws-overlay">
           <h1>{workspace.name}</h1>
@@ -483,6 +458,7 @@ export function WorkspaceMap() {
             stats={stats[selected.properties.id]}
             profile={profiles[selected.properties.id]}
             measure={measure}
+            radius={radius}
             network={data.network}
             onExport={() => exportFeatures(selected.properties.id)}
             onClose={() => setSelectedId(null)}
@@ -496,7 +472,9 @@ export function WorkspaceMap() {
           MALHA v{data.manifest.methodology_version}
         </span>
         <span>{cursor}</span>
-        <span>{tool === "draw" ? `DESENHANDO · ${draftVertices} VÉRTICES` : "SELECIONAR"}</span>
+        <span>
+          {tool === "draw" ? `DESENHANDO · ${draftVertices} VÉRTICES` : link ? `TRECHO #${link.properties.link_id}` : "SELECIONAR"}
+        </span>
         <span className="spacer" />
         <span>© OpenStreetMap · OpenFreeMap · Desenvolvido por Erick K. Bonfim</span>
       </footer>

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from quantumco.bootstrap.settings import Settings
-from quantumco.platform.postgres import pool
+from quantumco.platform.postgres import shared_pool
 from quantumco.shared_kernel.clock import SystemClock
 from quantumco.syntax_analysis.application.queries import GetScenario, GetSyntaxMap
 from quantumco.syntax_analysis.application.run_analysis import RunAnalysis
@@ -38,7 +38,7 @@ def run_analysis_use_case(settings: Settings) -> RunAnalysis:
 
 
 def syntax_map_query(settings: Settings) -> GetSyntaxMap:
-    return GetSyntaxMap(PostgisSyntaxMapReader(pool(settings.require_database())))
+    return GetSyntaxMap(PostgisSyntaxMapReader(shared_pool(settings.require_database())))
 
 
 def run_scenario_use_case(settings: Settings, snap_tolerance_m: float = 30.0) -> RunScenario:
@@ -58,4 +58,4 @@ def run_scenario_use_case(settings: Settings, snap_tolerance_m: float = 30.0) ->
 
 
 def scenario_query(settings: Settings) -> GetScenario:
-    return GetScenario(PostgisScenarioReader(pool(settings.require_database())))
+    return GetScenario(PostgisScenarioReader(shared_pool(settings.require_database())))
