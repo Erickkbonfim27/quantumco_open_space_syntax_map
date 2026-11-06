@@ -31,3 +31,6 @@ backend/.cache/
 
 # anotações locais de contexto (não vão para o GitHub)
 context.md
+
+# worktrees locais do Claude Code (cópias do repositório para trabalho isolado)
+.claude/worktrees/
