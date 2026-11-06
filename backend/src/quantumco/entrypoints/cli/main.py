@@ -13,7 +13,8 @@ from quantumco.bootstrap.syntax_analysis import run_analysis_use_case, run_scena
 from quantumco.bootstrap.territory import import_territory_use_case, territory_profile_query
 from quantumco.identity.domain.email import EmailAddress, EmailMessage
 from quantumco.identity.infrastructure.resend_mailer import ResendMailer, RestrictedApiKeyError
-from quantumco.platform.postgres import migrate
+from quantumco.platform.homolog import sync
+from quantumco.platform.postgres import migrate, shared_pool
 from quantumco.road_network.domain.highway_filter import FilterVariant
 from quantumco.syntax_analysis.domain.edits import AddStreet, Edit, RemoveLink
 
@@ -61,6 +62,11 @@ def main(
     third_party = logging.DEBUG if level == "DEBUG" else logging.WARNING
     for noisy in ("httpx", "httpcore", "pyogrio", "fiona"):
         logging.getLogger(noisy).setLevel(third_party)
+    if settings.use_homolog:
+        logging.getLogger(__name__).warning(
+            "QC_USE_HOMOLOG=1: banco de HOMOLOGAÇÃO, fila '%s', e-mails desviados para OWNER_EMAIL",
+            settings.scenario_queue,
+        )
     ctx.obj = settings
 
 
@@ -74,8 +80,26 @@ def _migrate_if_configured(settings: Settings) -> None:
 def db_migrate(ctx: typer.Context) -> None:
     """Aplica as migrações pendentes no PostGIS (QC_DATABASE_URL)."""
     settings: Settings = ctx.obj
+    target = "HOMOLOGAÇÃO" if settings.use_homolog else "produção"
     applied = migrate(settings.require_database())
-    typer.echo(f"migrações aplicadas: {', '.join(applied) or 'nenhuma (já atualizado)'}")
+    typer.echo(f"[{target}] migrações aplicadas: {', '.join(applied) or 'nenhuma (já atualizado)'}")
+
+
+@db_app.command("sync-homolog")
+def db_sync_homolog(ctx: typer.Context) -> None:
+    """Copia a produção para a homologação (mesmo servidor; apaga o que havia na homologação).
+
+    Usa as migrações que a produção TEM; para testar uma nova depois:
+    `QC_USE_HOMOLOG=1 quantumco db migrate`.
+    """
+    settings: Settings = ctx.obj
+    report = sync(settings.production_database_url, settings.homolog_database_url)
+    rows = sum(n for _, n in report.tables)
+    typer.echo(
+        f"homologação {'criada e ' if report.created else ''}sincronizada em {report.seconds}s: "
+        f"{len(report.tables)} tabelas, {rows} linhas, migrações até "
+        f"{report.migrations[-1] if report.migrations else '-'}"
+    )
 
 
 @snapshot_app.command("build")
@@ -129,14 +153,21 @@ def territory_import(
     ctx: typer.Context,
     only: Annotated[
         list[str] | None,
-        typer.Option("--only", help="só estas fontes: ibge-setores, ibge-cnefe, sgb-risco, cnes"),
+        typer.Option(
+            "--only",
+            help="só estas fontes: ibge-setores, ibge-cnefe, sgb-risco, cnes, overture-edificacoes",
+        ),
     ] = None,
 ) -> None:
     """Baixa as fontes abertas e substitui as camadas territoriais no PostGIS."""
     settings: Settings = ctx.obj
     _migrate_if_configured(settings)
-    for report in import_territory_use_case(settings)(only):
-        typer.echo(f"  {report.layer:<28} {report.rows:>7} registros  ({report.seconds}s)")
+    try:
+        for report in import_territory_use_case(settings)(only):
+            typer.echo(f"  {report.layer:<28} {report.rows:>7} registros  ({report.seconds}s)")
+    finally:
+        # sem isto o processo espera 5 s por thread do pool antes de sair
+        shared_pool(settings.require_database()).close()
 
 
 @territory_app.command("layers")

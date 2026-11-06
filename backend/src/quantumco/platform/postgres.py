@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import logging
 import time
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
@@ -80,8 +81,11 @@ def shared_pool(url: str) -> ConnectionPool:
     return shared
 
 
-def migrate(url: str) -> list[str]:
-    """Aplica as migrações SQL pendentes, em ordem, cada uma na sua transação."""
+def migrate(url: str, only: Collection[str] | None = None) -> list[str]:
+    """Aplica as migrações SQL pendentes, em ordem, cada uma na sua transação.
+
+    `only`: aplica só estas versões (ex.: deixar a homologação na mesma versão da produção).
+    """
     applied: list[str] = []
     with connect(url) as conn:
         conn.execute("select pg_advisory_lock(%s)", (_MIGRATION_LOCK,))
@@ -93,7 +97,7 @@ def migrate(url: str) -> list[str]:
             conn.commit()
             done = {r[0] for r in conn.execute("select version from public.schema_migrations")}
             for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
-                if path.stem in done:
+                if path.stem in done or (only is not None and path.stem not in only):
                     continue
                 log.info("migração %s…", path.name)
                 with conn.transaction():

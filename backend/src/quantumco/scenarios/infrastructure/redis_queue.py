@@ -31,9 +31,9 @@ def redis_client(url: str) -> Redis:
 
 
 class RedisRunQueue:
-    def __init__(self, redis: Redis, *, timeout_s: int) -> None:
+    def __init__(self, redis: Redis, *, timeout_s: int, queue: str = QUEUE) -> None:
         self._redis = redis
-        self._queue = Queue(QUEUE, connection=redis)
+        self._queue = Queue(queue, connection=redis)
         self._timeout_s = timeout_s
 
     def enqueue(self, run_id: UUID) -> None:

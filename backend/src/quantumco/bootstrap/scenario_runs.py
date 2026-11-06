@@ -91,7 +91,11 @@ def _friendly(message: str) -> str:
 def run_queue(settings: Settings) -> RedisRunQueue | None:
     if not settings.redis_url:
         return None
-    return RedisRunQueue(redis_client(settings.redis_url), timeout_s=settings.scenario_timeout_s)
+    return RedisRunQueue(
+        redis_client(settings.redis_url),
+        timeout_s=settings.scenario_timeout_s,
+        queue=settings.scenario_queue,
+    )
 
 
 def build_runs(settings: Settings, workspaces: Workspaces) -> ScenarioRuns:

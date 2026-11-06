@@ -23,6 +23,7 @@ dependencies = [
     "rq>=2.12,<2.13",
     "redis>=7.4,<9",
     "minio>=7.2,<8",
+    "overturemaps>=2.0,<3",
 ]
 
 [project.scripts]
@@ -64,7 +65,9 @@ mypy_path = "src"
 packages = ["quantumco"]
 
 [[tool.mypy.overrides]]
-module = ["geopandas.*", "pyproj.*", "pyarrow.*", "cityseer.*", "pandas.*", "argon2.*"]
+module = [
+    "geopandas.*", "pyproj.*", "pyarrow.*", "cityseer.*", "pandas.*", "argon2.*", "overturemaps.*",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -187,4 +190,5 @@ forbidden_modules = [
     "psycopg_pool",
     "quantumco.platform",
     "argon2",
+    "overturemaps",
 ]

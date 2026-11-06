@@ -4,6 +4,7 @@ from quantumco.bootstrap.settings import Settings
 from quantumco.identity.application.ports import AvatarStore, Mailer
 from quantumco.identity.domain.email import EmailAddress, Sender
 from quantumco.identity.infrastructure.log_mailer import LogMailer
+from quantumco.identity.infrastructure.redirect_mailer import RedirectingMailer
 from quantumco.identity.infrastructure.resend_mailer import ResendMailer
 
 
@@ -12,8 +13,17 @@ def sender_from(settings: Settings) -> Sender:
 
 
 def build_mailer(settings: Settings) -> Mailer:
-    """Resend quando há chave; senão, só log (desenvolvimento)."""
+    """Resend quando há chave; senão, só log (desenvolvimento).
+
+    Na homologação (dados reais copiados da produção) tudo vai para OWNER_EMAIL; sem OWNER_EMAIL,
+    nada sai: só log.
+    """
     sender = sender_from(settings)
+    if settings.use_homolog:
+        if not (settings.resend_api_key and settings.owner_email):
+            return LogMailer(sender)
+        inner = ResendMailer(api_key=settings.resend_api_key, sender=sender)
+        return RedirectingMailer(inner, EmailAddress(settings.owner_email))
     if settings.resend_api_key:
         return ResendMailer(api_key=settings.resend_api_key, sender=sender)
     return LogMailer(sender)

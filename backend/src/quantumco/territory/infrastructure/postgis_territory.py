@@ -159,20 +159,22 @@ def _replace_buildings(conn: Connection[Any], data: LayerData) -> None:
     conn.execute("delete from territory.buildings")
     conn.execute(
         "create temp table stage_b (building_id text, source text, height_m real, "
-        "floors smallint, class text, g text) on commit drop"
+        "floors smallint, class text, confidence real, g text) on commit drop"
     )
     with conn.cursor().copy(
-        "copy stage_b (building_id, source, height_m, floors, class, g) from stdin"
+        "copy stage_b (building_id, source, height_m, floors, class, confidence, g) from stdin"
     ) as copy:
         for b in data.buildings:
             copy.write_row(
-                (b.building_id, b.source, b.height_m, b.floors, b.klass, json.dumps(b.geometry))
-            )
+                (b.building_id, b.source, b.height_m, b.floors, b.klass, b.confidence,
+                 json.dumps(b.geometry))
+            )  # fmt: skip
     conn.execute(
         "insert into territory.buildings "
-        "(building_id, source, height_m, floors, class, area_m2, geom) "
-        "select building_id, source, height_m, floors, class, ST_Area(geom), geom from "
-        f"(select building_id, source, height_m, floors, class, {_GEOM} geom from stage_b) s "
+        "(building_id, source, height_m, floors, class, confidence, area_m2, geom) "
+        "select building_id, source, height_m, floors, class, confidence, ST_Area(geom), geom "
+        "from (select building_id, source, height_m, floors, class, confidence, "
+        f"{_GEOM} geom from stage_b) s "
         "where not ST_IsEmpty(geom) on conflict (building_id) do nothing"
     )
 

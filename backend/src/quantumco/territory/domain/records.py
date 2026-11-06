@@ -68,6 +68,7 @@ class Building:
     height_m: float | None = None
     floors: int | None = None
     klass: str | None = None
+    confidence: float | None = None  # do modelo de detecção (Google), 0..1
 
 
 class GridKind(StrEnum):

@@ -19,7 +19,7 @@ from rq.worker_pool import WorkerPool
 
 from quantumco.bootstrap.settings import Settings
 from quantumco.platform.postgres import connect
-from quantumco.scenarios.infrastructure.redis_queue import QUEUE, RedisRunQueue, redis_client
+from quantumco.scenarios.infrastructure.redis_queue import RedisRunQueue, redis_client
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +59,11 @@ class ScenarioWorker(Worker):
 
 def recover(settings: Settings) -> int:
     """Pedidos 'na fila' no banco que sumiram do Redis (Redis reiniciado sem AOF) voltam à fila."""
-    queue = RedisRunQueue(redis_client(settings.redis_url), timeout_s=settings.scenario_timeout_s)
+    queue = RedisRunQueue(
+        redis_client(settings.redis_url),
+        timeout_s=settings.scenario_timeout_s,
+        queue=settings.scenario_queue,
+    )
     with connect(settings.require_database()) as conn:
         try:
             rows = conn.execute(
@@ -87,14 +91,15 @@ def start(settings: Settings, workers: int, *, burst: bool = False) -> None:
     redis.ping()
     log.info("Redis ok em %.0f ms", (time.perf_counter() - started) * 1000)
     recover(settings)
-    waiting = Queue(QUEUE, connection=redis).count
-    log.info("fila '%s': %d na espera; subindo %d worker(s)", QUEUE, waiting, workers)
+    queue = settings.scenario_queue
+    waiting = Queue(queue, connection=redis).count
+    log.info("fila '%s': %d na espera; subindo %d worker(s)", queue, waiting, workers)
     # importa o motor antes do fork: cada cálculo começa sem pagar o import do cityseer
     t = time.perf_counter()
     import quantumco.syntax_analysis.infrastructure.cityseer_analyzer  # noqa: F401, PLC0415
 
     log.info("motor carregado em %.1fs", time.perf_counter() - t)
     ScenarioWorker.database_url = settings.require_database()
-    WorkerPool([QUEUE], connection=redis, num_workers=workers, worker_class=ScenarioWorker).start(
+    WorkerPool([queue], connection=redis, num_workers=workers, worker_class=ScenarioWorker).start(
         burst=burst, logging_level=settings.log_level
     )

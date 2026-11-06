@@ -13,6 +13,8 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
+from quantumco.platform.homolog import homolog_url_for, is_homolog
+
 REPO_ROOT = Path(__file__).resolve().parents[4]  # onde fica o .env local
 BACKEND_ROOT = Path(__file__).resolve().parents[3]  # build path "/backend" no deploy
 
@@ -72,6 +74,15 @@ class Settings:
     s3_access_key: str = ""
     s3_secret_key: str = ""
     s3_bucket_avatars: str = "quantumco-avatars"
+    # homologação (platform/homolog.py): QC_USE_HOMOLOG=1 troca o banco da aplicação pela cópia
+    production_database_url: str = ""
+    homolog_database_url: str = ""
+    use_homolog: bool = False
+
+    @property
+    def scenario_queue(self) -> str:
+        """Fila RQ dos cálculos: a homologação tem a sua, longe dos workers da produção."""
+        return "scenarios-homolog" if self.use_homolog else "scenarios"
 
     @property
     def s3_configured(self) -> bool:
@@ -87,7 +98,17 @@ class Settings:
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
         source = os.environ if env is None else env
+        production = source.get("QC_DATABASE_URL", "").strip()
+        homolog = source.get("QC_HOMOLOG_DATABASE_URL", "").strip() or homolog_url_for(production)
+        use_homolog = source.get("QC_USE_HOMOLOG", "").strip().lower() in {"1", "true", "sim"}
+        if use_homolog and not is_homolog(homolog):
+            raise ValueError(
+                "QC_USE_HOMOLOG=1, mas o banco de homologação não tem 'homolog' no nome"
+            )
         return cls(
+            production_database_url=production,
+            homolog_database_url=homolog,
+            use_homolog=use_homolog,
             methodology_dir=_path(source.get("QC_METHODOLOGY_DIR", "methodology/v1")),
             overpass_url=source.get("QC_OVERPASS_URL", "https://overpass-api.de/api/interpreter"),
             overpass_timeout_s=float(source.get("QC_OVERPASS_TIMEOUT_S", "300")),
@@ -96,7 +117,7 @@ class Settings:
             mail_from=source.get("MAIL_FROM", "noreply@quantumco.com.br").strip(),
             mail_from_name=source.get("MAIL_FROM_NAME", "quantumco").strip(),
             owner_email=source.get("OWNER_EMAIL", "").strip(),
-            database_url=source.get("QC_DATABASE_URL", "").strip(),
+            database_url=homolog if use_homolog else production,
             cookie_secure=source.get("QC_COOKIE_SECURE", "true").strip().lower() != "false",
             cache_dir=_path(source.get("QC_CACHE_DIR", ".cache")),
             redis_url=source.get("QC_REDIS_URL", "").strip(),

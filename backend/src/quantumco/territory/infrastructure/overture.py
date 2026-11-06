@@ -1,0 +1,168 @@
+"""Overture Maps (https://overturemaps.org): edificações e, depois, lugares.
+
+O tema *buildings* junta OpenStreetMap, Microsoft ML Buildings e Google Open Buildings já
+conflacionados (sem prédio duplicado). Em Brusque, no release 2026-10-21.0: 94.366 prédios no
+retângulo da grade, 70% Google, 29% Microsoft e 1% OSM; altura em só 8 deles.
+
+Licença do tema: ODbL (por conter OSM; Google entra em CC BY 4.0, compatível). Crédito exigido:
+"© OpenStreetMap contributors, Overture Maps Foundation" (docs.overturemaps.org/attribution).
+
+O release é FIXO para a importação ser reproduzível; trocar de release é uma decisão (e um commit).
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from collections import Counter
+from collections.abc import Iterator, Mapping, Sequence
+from pathlib import Path
+from typing import Any, cast
+
+import pyarrow as pa
+import pyarrow.parquet as pq
+import shapely
+from pyproj import Transformer
+from shapely import from_wkb
+from shapely.geometry import MultiPolygon, Polygon, mapping
+
+from quantumco.territory.domain.grid import BRUSQUE_GRID
+from quantumco.territory.domain.profile import BUILDINGS_LAYER
+from quantumco.territory.domain.records import Building, LayerData
+
+log = logging.getLogger(__name__)
+
+RELEASE = "2026-10-21.0"
+SOURCE_URL = "https://docs.overturemaps.org/guides/buildings/"
+BUILDINGS_LICENSE = (
+    "ODbL 1.0 · © OpenStreetMap contributors, Overture Maps Foundation "
+    "(Microsoft ML Buildings: ODbL; Google Open Buildings: CC BY 4.0)"
+)
+MIN_AREA_M2 = 10.0  # abaixo disso é quase sempre ruído do modelo (spec F1)
+
+_TO_UTM = Transformer.from_crs(4326, 31982, always_xy=True)
+_TO_WGS84 = Transformer.from_crs(31982, 4326, always_xy=True)
+
+
+def grid_bbox() -> tuple[float, float, float, float]:
+    """Retângulo WGS84 (oeste, sul, leste, norte) que cobre a grade de 30 m inteira."""
+    g = BRUSQUE_GRID
+    corners = [_TO_WGS84.transform(x, y) for x in (g.west, g.east) for y in (g.south, g.north)]
+    lons, lats = [c[0] for c in corners], [c[1] for c in corners]
+    return min(lons), min(lats), max(lons), max(lats)
+
+
+def download(kind: str, cache_dir: Path, release: str = RELEASE) -> Path:
+    """Baixa um tema do Overture no retângulo da grade para o cache (uma vez por release)."""
+    from overturemaps import core  # noqa: PLC0415  (importa o pyfiglet/click só quando usado)
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    target = cache_dir / f"overture-{kind}-{release}.parquet"
+    if target.exists():
+        log.info("  cache: %s (%.1f MB)", target.name, target.stat().st_size / 1e6)
+        return target
+    partial = target.with_suffix(".part")
+    for attempt in range(1, 5):
+        try:
+            started = time.perf_counter()
+            reader = core.record_batch_reader(kind, bbox=grid_bbox(), release=release, stac=True)
+            if reader is None:
+                raise RuntimeError(f"Overture sem dados de {kind} no release {release}")
+            rows = 0
+            with pq.ParquetWriter(partial, reader.schema) as writer:
+                for batch in reader:
+                    writer.write_batch(batch)
+                    rows += batch.num_rows
+            partial.replace(target)
+            log.info("  baixado %s: %d registros em %.1fs",
+                     target.name, rows, time.perf_counter() - started)  # fmt: skip
+            return target
+        except (OSError, pa.ArrowException) as exc:
+            wait = 2**attempt
+            log.warning("  falha ao baixar %s (tentativa %d/4): %s; de novo em %ds",
+                        kind, attempt, exc, wait)  # fmt: skip
+            if attempt == 4:
+                raise
+            time.sleep(wait)
+    raise RuntimeError("inalcançável")
+
+
+def _primary(sources: Sequence[Mapping[str, Any]] | None) -> Mapping[str, Any]:
+    """Fonte da feição inteira (property vazia); senão, a primeira citada."""
+    items = list(sources or [])
+    whole = [s for s in items if not s.get("property")]
+    return (whole or items or [{}])[0]
+
+
+def normalize_building(row: Mapping[str, Any]) -> tuple[Building | None, str]:
+    """Um registro do Overture → Building, ou None e o motivo do descarte."""
+    if row.get("is_underground"):
+        return None, "subterraneo"
+    geom = from_wkb(row["geometry"])
+    if not isinstance(geom, Polygon | MultiPolygon) or geom.is_empty:
+        return None, "geometria"
+    # interleaved=False: a função recebe (x, y) separados; o stub só conhece a forma intercalada
+    utm = shapely.transform(geom, cast(Any, _TO_UTM.transform), interleaved=False)
+    if utm.area < MIN_AREA_M2:
+        return None, "pequeno"
+    source = _primary(row.get("sources"))
+    floors = row.get("num_floors")
+    height = row.get("height")
+    confidence = source.get("confidence")
+    return (
+        Building(
+            building_id=str(row["id"]),
+            source=str(source.get("dataset") or "desconhecida"),
+            geometry=mapping(geom),
+            height_m=float(height) if height is not None else None,
+            floors=int(floors) if floors is not None else None,
+            klass=row.get("class"),
+            confidence=float(confidence) if confidence is not None else None,
+        ),
+        "ok",
+    )
+
+
+def _rows(path: Path, columns: Sequence[str]) -> Iterator[dict[str, Any]]:
+    for batch in pq.ParquetFile(path).iter_batches(batch_size=20_000, columns=list(columns)):
+        yield from batch.to_pylist()
+
+
+class OvertureBuildingsSource:
+    name = "overture-edificacoes"
+
+    def __init__(self, cache_dir: Path, release: str = RELEASE) -> None:
+        self._cache = cache_dir
+        self._release = release
+
+    def fetch(self) -> Sequence[LayerData]:
+        path = download("building", self._cache, self._release)
+        buildings: list[Building] = []
+        outcome: Counter[str] = Counter()
+        columns = ("id", "sources", "is_underground", "height", "num_floors", "class", "geometry")
+        for row in _rows(path, columns):
+            building, why = normalize_building(row)
+            outcome[why] += 1
+            if building is not None:
+                buildings.append(building)
+        by_source = Counter(b.source for b in buildings)
+        log.info("  edificações: %d aceitas; descartes %s; por fonte %s",
+                 len(buildings), dict(outcome - Counter(ok=outcome["ok"])),
+                 dict(by_source))  # fmt: skip
+        return [
+            LayerData(
+                layer=BUILDINGS_LAYER,
+                source=f"Overture Maps Foundation, tema buildings (release {self._release})",
+                source_url=SOURCE_URL,
+                license=BUILDINGS_LICENSE,
+                buildings=buildings,
+                meta={
+                    "release": self._release,
+                    "bbox": list(grid_bbox()),
+                    "min_area_m2": MIN_AREA_M2,
+                    "discarded": {k: v for k, v in outcome.items() if k != "ok"},
+                    "by_source": dict(by_source.most_common()),
+                    "with_height": sum(1 for b in buildings if b.height_m is not None),
+                },
+            )
+        ]

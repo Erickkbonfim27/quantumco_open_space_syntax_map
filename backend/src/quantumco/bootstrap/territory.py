@@ -7,6 +7,7 @@ from quantumco.territory.application.import_layers import ImportTerritory
 from quantumco.territory.application.queries import GetPolygonProfile, SearchAddresses
 from quantumco.territory.infrastructure.cnes import CnesSource
 from quantumco.territory.infrastructure.ibge import CensusTractsSource, CnefeSource
+from quantumco.territory.infrastructure.overture import OvertureBuildingsSource
 from quantumco.territory.infrastructure.postgis_territory import (
     PostgisAddressIndex,
     PostgisTerritoryReader,
@@ -19,7 +20,13 @@ def import_territory_use_case(settings: Settings) -> ImportTerritory:
     cache = settings.cache_dir / "territory"
     return ImportTerritory(
         # CNEFE antes dos setores não importa: o peso dasimétrico é calculado na consulta
-        sources=[CensusTractsSource(cache), CnefeSource(cache), SgbSource(), CnesSource()],
+        sources=[
+            CensusTractsSource(cache),
+            CnefeSource(cache),
+            SgbSource(),
+            CnesSource(),
+            OvertureBuildingsSource(cache),
+        ],
         repository=PostgisTerritoryRepository(shared_pool(settings.require_database())),
         clock=SystemClock(),
     )
