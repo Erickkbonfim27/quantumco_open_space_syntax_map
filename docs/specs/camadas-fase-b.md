@@ -1,7 +1,7 @@
 # Spec — Camadas territoriais, fase B (10 fontes abertas + 3 análises)
 
-Versão 0.2 · 2026-11-06 · status: **em implementação** (etapa 0 pronta: migração 009 aplicada no
-banco principal em 2026-11-06; backend ainda sem deploy)
+Versão 0.3 · 2026-11-06 · status: **em implementação**. Etapa 0 pronta. Etapa 1: prédios (F1) na
+produção; lugares (F2b) e Censo (F10) na homologação; CNPJ (F2a) a fazer.
 
 Origem: análise do acervo `erickkbonfim-portifolio/documentos/search` (fontes, lacunas e concorrência)
 cruzado com o que o mapa já tem (`docs/data-sources.md`). Esta spec junta numa só as fases B e C

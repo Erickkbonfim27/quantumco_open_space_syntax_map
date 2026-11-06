@@ -146,6 +146,7 @@ def test_territory_map_layers() -> None:
 
 def test_territory_profile_has_phase_b_blocks() -> None:
     body = client().post("/api/v1/territory/polygon-profile", json={"coordinates": RING}).json()
+    assert body["places"] == {"total": 17, "by_kind": {"comercio": 12, "alimentacao": 5}}
     assert body["buildings"]["count"] == 200
     assert body["buildings"]["coverage_ratio"] == 0.12
     assert body["grid"]["declividade"]["p90"] == 31.0

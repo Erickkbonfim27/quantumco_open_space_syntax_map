@@ -22,6 +22,19 @@ DWELLINGS = "dwellings"  # domicílios particulares, ocupados ou não (V0003)
 HEADS = "heads"  # responsáveis por domicílio (base da renda)
 INCOME_MEAN = "income_mean"
 INCOME_MEDIAN = "income_median"
+# fase B (F10): idade, alfabetização (15+) e saneamento (domicílios particulares permanentes)
+AGE_0_14 = "age_0_14"
+AGE_15_29 = "age_15_29"
+AGE_30_59 = "age_30_59"
+AGE_60P = "age_60p"
+AGE_BANDS = (AGE_0_14, AGE_15_29, AGE_30_59, AGE_60P)
+POP_15P = "pop_15p"
+LITERATE_15P = "literate_15p"
+PERMANENT_HOUSEHOLDS = "dppo"
+WATER_NETWORK = "water_network"
+SEWER_NETWORK = "sewer_network"
+GARBAGE_COLLECTED = "garbage_collected"
+SANITATION = (WATER_NETWORK, SEWER_NETWORK, GARBAGE_COLLECTED)
 
 # Entorno dos domicílios (Censo 2022): domicílios ocupados em faces COM o item / base pesquisada.
 STREETSCAPE_BASE = "sc_base"
@@ -126,6 +139,61 @@ def population(overlaps: Sequence[TractOverlap], area_km2: float) -> dict[str, A
         "tracts": len(tracts),
         "tracts_income_suppressed": suppressed,
         "weighting": sorted({t.weighting for t in tracts}),
+    }
+
+
+def _weighted_ratio(
+    overlaps: Sequence[TractOverlap], numerators: Sequence[str], base: str
+) -> tuple[dict[str, float], float, int]:
+    """Somas ponderadas (peso dasimétrico) de numeradores e base, só nos setores com tudo informado.
+
+    Devolve (frações por numerador, base estimada, setores sem dado). Setor com qualquer valor
+    sigiloso fica de fora inteiro, para numerador e base continuarem comparáveis.
+    """
+    sums: dict[str, float] = defaultdict(float)
+    total = 0.0
+    missing = 0
+    for t in overlaps:
+        if t.share <= 0:
+            continue
+        b = _num(t.attrs.get(base))
+        values = [_num(t.attrs.get(n)) for n in numerators]
+        if b is None or any(v is None for v in values):
+            missing += 1
+            continue
+        total += t.share * b
+        for name, v in zip(numerators, values, strict=True):
+            sums[name] += t.share * (v or 0.0)
+    shares = {n: round(min(sums[n] / total, 1.0), 4) for n in numerators} if total > 0 else {}
+    return shares, total, missing
+
+
+def demography(overlaps: Sequence[TractOverlap]) -> dict[str, Any] | None:
+    """Faixas de idade, alfabetização (15+) e saneamento; None se o banco ainda não as tem."""
+    if not any(AGE_0_14 in t.attrs for t in overlaps):
+        return None
+    ages = [t for t in overlaps if all(_num(t.attrs.get(a)) is not None for a in AGE_BANDS)]
+    age_total = sum(t.share * sum(_num(t.attrs.get(a)) or 0.0 for a in AGE_BANDS) for t in ages)
+    age_shares = {
+        a: round(sum(t.share * (_num(t.attrs.get(a)) or 0.0) for t in ages) / age_total, 4)
+        for a in AGE_BANDS
+    } if age_total > 0 else {}  # fmt: skip
+    literacy, pop_15p, literacy_missing = _weighted_ratio(overlaps, [LITERATE_15P], POP_15P)
+    sanitation, households, sanitation_missing = _weighted_ratio(
+        overlaps, list(SANITATION), PERMANENT_HOUSEHOLDS
+    )
+    tracts = [t for t in overlaps if t.share > 0]
+    return {
+        "ages": age_shares,
+        "literacy_15p": literacy.get(LITERATE_15P),
+        "pop_15p": round(pop_15p),
+        "sanitation": sanitation,
+        "permanent_households": round(households),
+        "tracts_suppressed": {
+            "ages": len(tracts) - len(ages),
+            "literacy": literacy_missing,
+            "sanitation": sanitation_missing,
+        },
     }
 
 

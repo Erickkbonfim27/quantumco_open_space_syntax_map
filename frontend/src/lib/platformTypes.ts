@@ -181,6 +181,17 @@ export interface TerritoryProfile {
     schools: string[];
   };
   health: { total: number; sus: number; by_kind: Record<string, number>; public_units: string[] };
+  /** Idade, alfabetização e saneamento (Censo 2022, por setor); null = variáveis não importadas. */
+  demography?: {
+    ages: Partial<Record<"age_0_14" | "age_15_29" | "age_30_59" | "age_60p", number>>;
+    literacy_15p: number | null;
+    pop_15p: number;
+    sanitation: Partial<Record<"water_network" | "sewer_network" | "garbage_collected", number>>;
+    permanent_households: number;
+    tracts_suppressed: { ages: number; literacy: number; sanitation: number };
+  } | null;
+  /** Lugares com nome (Overture places), por grupo; null = camada não importada. */
+  places?: { total: number; by_kind: Record<string, number> } | null;
   /** Edificações (Overture); null = camada ainda não importada. */
   buildings?: {
     count: number;

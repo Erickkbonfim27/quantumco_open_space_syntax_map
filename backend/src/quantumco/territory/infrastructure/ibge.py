@@ -59,6 +59,35 @@ STREETSCAPE: dict[str, tuple[str, ...]] = {
     "sc_trees_5": ("V05033",),
 }
 
+# Fase B (F10): idade, alfabetização e saneamento, dos agregados por setor (dicionário de dados de
+# 2026-05-20). Cada atributo nosso = soma das variáveis do IBGE listadas.
+AGGREGATES = f"{CENSUS}/Agregados_por_Setores_Censitarios/Agregados_por_Setor_csv"
+DEMOGRAPHY_URL = f"{AGGREGATES}/Agregados_por_setores_demografia_BR.zip"
+LITERACY_URL = f"{AGGREGATES}/Agregados_por_setores_alfabetizacao_BR.zip"
+DOMICILE1_URL = f"{AGGREGATES}/Agregados_por_setores_caracteristicas_domicilio1_BR_20261021.zip"
+DOMICILE2_URL = f"{AGGREGATES}/Agregados_por_setores_caracteristicas_domicilio2_BR_20250417.zip"
+EXTRA: dict[str, dict[str, tuple[str, ...]]] = {
+    DEMOGRAPHY_URL: {
+        profile.AGE_0_14: ("V01031", "V01032", "V01033"),
+        profile.AGE_15_29: ("V01034", "V01035", "V01036"),
+        profile.AGE_30_59: ("V01037", "V01038", "V01039"),
+        profile.AGE_60P: ("V01040", "V01041"),
+    },
+    LITERACY_URL: {
+        # base = 15+ que sabe + que não sabe ler e escrever (mesmo par de variáveis, mesmo sigilo).
+        # Somar as 13 faixas de idade (V00644–V00656) deu 104,8% na cidade: o sigilo de uma faixa
+        # derrubava a base do setor e o numerador seguia contando.
+        profile.POP_15P: ("V00900", "V00901"),
+        profile.LITERATE_15P: ("V00900",),
+    },
+    DOMICILE1_URL: {profile.PERMANENT_HOUSEHOLDS: ("V00001",)},
+    DOMICILE2_URL: {
+        profile.WATER_NETWORK: ("V00111",),  # usa a rede geral de distribuição de água
+        profile.SEWER_NETWORK: ("V00309",),  # esgoto na rede geral ou pluvial
+        profile.GARBAGE_COLLECTED: ("V00397",),  # lixo coletado no domicílio
+    },
+}
+
 # CNEFE: COD_ESPECIE → tipo. NV_GEO_COORD 1–3 = coordenada do endereço, da face ou da quadra;
 # níveis 4+ (localidade, setor…) são grossos demais para recortar por polígono.
 CNEFE_KINDS = {
@@ -85,19 +114,39 @@ def _number(value: object) -> Number:
 
 
 def _rows_for(zip_path: Path, code_column: str) -> pd.DataFrame:
-    """Linhas de Brusque de um CSV nacional (lido em blocos; só texto, sem inferência)."""
+    """Linhas de Brusque de um CSV nacional (lido em blocos; só texto, sem inferência).
+
+    O nome da coluna do código muda de arquivo para arquivo (CD_SETOR, CD_setor, setor…): casa sem
+    diferenciar maiúsculas. O índice sai sempre com o nome pedido.
+    """
+    accepted = {code_column.lower(), "setor"}
     with zipfile.ZipFile(zip_path) as archive:
         name = next(n for n in archive.namelist() if n.lower().endswith(".csv"))
         with archive.open(name) as raw:
-            parts = [
-                chunk[chunk[code_column].str.startswith(MUNICIPALITY, na=False)]
-                for chunk in pd.read_csv(
-                    raw, sep=";", dtype=str, encoding="latin-1", chunksize=200_000
-                )
-            ]
+            parts = []
+            for chunk in pd.read_csv(
+                raw, sep=";", dtype=str, encoding="latin-1", chunksize=200_000
+            ):
+                column = next((c for c in chunk.columns if c.lower() in accepted), None)
+                if column is None:
+                    raise ValueError(
+                        f"{zip_path.name}: sem coluna de setor ({list(chunk.columns)[:3]})"
+                    )
+                part = chunk[chunk[column].str.startswith(MUNICIPALITY, na=False)]
+                parts.append(part.rename(columns={column: code_column}))
     found = pd.concat(parts)
     log.info("  %s: %d setores de Brusque", zip_path.name.split("-", 1)[-1], len(found))
     return found.set_index(code_column)
+
+
+def _sum(frame: pd.DataFrame, code: str, columns: Sequence[str]) -> Number:
+    """Soma das variáveis; None se o setor falta no arquivo ou alguma veio sigilosa ("X")."""
+    if code not in frame.index:
+        return None
+    values = [_number(frame.at[code, c]) if c in frame.columns else None for c in columns]
+    if any(v is None for v in values):
+        return None
+    return float(sum(v for v in values if v is not None))
 
 
 def _multipolygon(geom: object) -> MultiPolygon:
@@ -125,6 +174,7 @@ class CensusTractsSource:
         log.info("  malha: %d setores (%s)", len(frame), frame.crs)
         income = _rows_for(income_zip, "CD_SETOR")
         streetscape = _rows_for(streetscape_zip, "CD_setor")
+        extra = {url: _rows_for(fetch_file(url, self._cache), "CD_SETOR") for url in EXTRA}
 
         tracts: list[Tract] = []
         for row in frame.itertuples(index=False):
@@ -139,6 +189,9 @@ class CensusTractsSource:
                 for ours, columns in STREETSCAPE.items():
                     values = [_number(streetscape.at[code, c]) for c in columns]
                     attrs[ours] = None if any(v is None for v in values) else sum(values)  # type: ignore[arg-type]
+            for url, variables in EXTRA.items():
+                for ours, columns in variables.items():
+                    attrs[ours] = _sum(extra[url], code, columns)
             tracts.append(
                 Tract(code=code, geometry=mapping(_multipolygon(row.geometry)), attrs=attrs)
             )
@@ -150,7 +203,7 @@ class CensusTractsSource:
             LayerData(
                 layer="setores",
                 source="IBGE · Censo 2022 (malha de setores, agregados, renda do responsável, "
-                "entorno dos domicílios)",
+                "entorno dos domicílios, idade, alfabetização e saneamento)",
                 source_url=TRACTS_URL,
                 license=LICENSE,
                 tracts=tracts,
@@ -158,6 +211,10 @@ class CensusTractsSource:
                     "people": people,
                     "income_url": INCOME_URL,
                     "streetscape_url": STREETSCAPE_URL,
+                    "extra_urls": list(EXTRA),
+                    "extra_variables": {
+                        ours: list(cols) for v in EXTRA.values() for ours, cols in v.items()
+                    },
                 },
             )
         ]

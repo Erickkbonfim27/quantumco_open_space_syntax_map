@@ -64,6 +64,36 @@ def test_risk_scales_people_by_area_and_keeps_worst_grade() -> None:
     assert out["worst"] == "Muito alto"
 
 
+FULL = {
+    "age_0_14": 20, "age_15_29": 30, "age_30_59": 40, "age_60p": 10,
+    "pop_15p": 80, "literate_15p": 76,
+    "dppo": 40, "water_network": 40, "sewer_network": 10, "garbage_collected": 38,
+}  # fmt: skip
+
+
+def test_demography_weights_ages_literacy_and_sanitation_by_share() -> None:
+    a = tract(FULL, area=1, inside=10, total=10)  # inteiro dentro
+    b = tract(FULL | {"sewer_network": 30}, area=1, inside=5, total=10)  # metade dentro
+    out = profile.demography([a, b])
+    assert out is not None
+    assert out["ages"] == {"age_0_14": 0.2, "age_15_29": 0.3, "age_30_59": 0.4, "age_60p": 0.1}
+    assert out["literacy_15p"] == 0.95
+    assert out["pop_15p"] == 120
+    # esgoto: (10 + 0,5 × 30) / (40 + 0,5 × 40) = 25 / 60
+    assert out["sanitation"]["sewer_network"] == pytest.approx(25 / 60, abs=1e-4)
+    assert out["permanent_households"] == 60
+
+
+def test_demography_drops_suppressed_tracts_from_numerator_and_base() -> None:
+    ok = tract(FULL, area=1, inside=1, total=1)
+    hidden = tract(FULL | {"literate_15p": None}, area=1, inside=1, total=1)
+    out = profile.demography([ok, hidden])
+    assert out is not None
+    assert out["literacy_15p"] == 0.95  # o setor sigiloso não puxa a taxa para baixo
+    assert out["tracts_suppressed"]["literacy"] == 1
+    assert profile.demography([tract({"people": 10}, area=1, inside=1, total=1)]) is None
+
+
 def test_susceptibility_is_share_of_polygon_area() -> None:
     zones = [ZoneOverlap("suscet_inundacao", "Alta", "Inundação", {}, 250_000, 900_000)]
     out = profile.susceptibility(zones, area_m2=1_000_000)

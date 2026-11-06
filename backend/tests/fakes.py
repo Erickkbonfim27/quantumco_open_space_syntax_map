@@ -395,8 +395,11 @@ class TerritoryReader:
             place_counts=[
                 PlaceCount("cnefe", "domicilio", 100),
                 PlaceCount("cnes", "hospital", 1, 1),
+                PlaceCount("lugares", "comercio", 12),
+                PlaceCount("lugares", "alimentacao", 5),
             ],
             named_places=[NamedPlace("cnes", "hospital", "Hospital Azambuja")],
+            imported=frozenset({"setores", "lugares", "edificacoes"}),
             grid=[
                 GridStat(
                     "declividade",

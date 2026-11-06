@@ -72,13 +72,14 @@ const MUNICIPALITY = "municipality";
 const empty = (): FeatureCollection => ({ type: "FeatureCollection", features: [] });
 
 /** Camadas territoriais (dados abertos) baixadas sob demanda. */
-export const OVERLAYS = ["inundacao", "risco", "saude", "escolas"] as const;
+export const OVERLAYS = ["inundacao", "risco", "saude", "escolas", "lugares"] as const;
 export type Overlay = (typeof OVERLAYS)[number];
 const OVERLAY_ENDPOINT: Record<Overlay, string> = {
   inundacao: "territory/map/suscet_inundacao",
   risco: "territory/map/risco",
   saude: "territory/map/saude",
   escolas: "territory/map/escolas",
+  lugares: "territory/map/lugares",
 };
 // Fora da paleta sintática, para não confundir com NAIN/NACH.
 export const OVERLAY_COLOR: Record<Overlay, string> = {
@@ -86,6 +87,7 @@ export const OVERLAY_COLOR: Record<Overlay, string> = {
   risco: "#FF6B5E",
   saude: "#2BD46B",
   escolas: "#F4F6F5",
+  lugares: "#C08CFF",
 };
 
 // Edificações (Overture, ODbL): tiles vetoriais da nossa API, a partir do z13.
@@ -112,6 +114,7 @@ export interface MapFlags {
   risco: boolean;
   saude: boolean;
   escolas: boolean;
+  lugares: boolean;
   predios: boolean;
 }
 
@@ -126,6 +129,7 @@ export const DEFAULT_FLAGS: MapFlags = {
   risco: false,
   saude: false,
   escolas: false,
+  lugares: false,
   predios: false,
 };
 
@@ -189,6 +193,9 @@ function popupHtml(overlay: Overlay, props: Record<string, unknown>): string {
     return `<strong>${str("nome")}</strong><br><span>${str("tipo").replace(/_/g, " ")}${sus} · CNES</span>`;
   }
   if (overlay === "escolas") return `<strong>${str("nome")}</strong><br><span>Escola · CNEFE 2022</span>`;
+  if (overlay === "lugares") {
+    return `<strong>${str("nome") || "Sem nome"}</strong><br>${str("categoria").replace(/_/g, " ")}<br><span>Overture · ${str("fonte")}</span>`;
+  }
   return `<strong>Suscetibilidade ${str("categoria").toLowerCase()} a inundação</strong><br><span>IPT/SGB 2013</span>`;
 }
 
@@ -529,7 +536,23 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
           "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 2, 1.2],
         },
       });
-      // pontos e rótulos (acima de tudo)
+      // pontos e rótulos (acima de tudo); lugares por baixo de saúde e escolas (são muitos)
+      add(
+        {
+          id: "lugares",
+          type: "circle",
+          source: "lugares",
+          layout: { visibility: "none" },
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 1.6, 16, 4.5],
+            "circle-color": OVERLAY_COLOR.lugares,
+            "circle-opacity": 0.85,
+            "circle-stroke-color": "#07090A",
+            "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 11, 0, 15, 0.8],
+          },
+        },
+        false,
+      );
       add(
         {
           id: "saude",
@@ -649,11 +672,11 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
         renderDraft();
         return;
       }
-      const overlayLayers = (["escolas", "saude", "risco", "inundacao", "predios"] as const).filter(
+      const overlayLayers = (["escolas", "saude", "lugares", "risco", "inundacao", "predios"] as const).filter(
         (id) => instance.getLayer(id) && instance.getLayoutProperty(id, "visibility") === "visible",
       );
       const hits = instance.queryRenderedFeatures(event.point, { layers: ["links-hit", "polys-fill", ...overlayLayers] });
-      const point = hits.find((h) => h.layer.id === "escolas" || h.layer.id === "saude");
+      const point = hits.find((h) => h.layer.id === "escolas" || h.layer.id === "saude" || h.layer.id === "lugares");
       const link = hits.find((h) => h.layer.id === "links-hit");
       const area = hits.find((h) => h.layer.id === "risco" || h.layer.id === "inundacao");
       const building = hits.find((h) => h.layer.id === "predios");

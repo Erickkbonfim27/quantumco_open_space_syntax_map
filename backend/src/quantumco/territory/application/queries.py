@@ -26,7 +26,16 @@ CNEFE_KINDS = (
 NAMED_LIMIT = 12
 
 # Camadas que o mapa público pode ligar (cidade inteira).
-MAP_LAYERS = ("risco", "suscet_inundacao", "saude", "escolas")
+MAP_LAYERS = ("risco", "suscet_inundacao", "saude", "escolas", "lugares")
+PLACES_LAYER = "lugares"  # Overture places (comércio e serviços com nome)
+
+
+def _places(counts: Mapping[str, int]) -> dict[str, Any]:
+    """Lugares do Overture no polígono, por grupo."""
+    return {
+        "total": sum(counts.values()),
+        "by_kind": dict(sorted(counts.items(), key=lambda kv: -kv[1])),
+    }
 
 
 BUILDING_MIN_ZOOM = 13  # abaixo disso os prédios viram poeira: o tile sai vazio
@@ -92,6 +101,7 @@ class GetPolygonProfile:
         health = counts.get("cnes", {})
         return {
             "population": profile.population(found.tracts, area_km2),
+            "demography": profile.demography(found.tracts),
             "streetscape": profile.streetscape(found.tracts),
             "risk": profile.risk(found.zones),
             "susceptibility": profile.susceptibility(found.zones, found.area_m2),
@@ -113,6 +123,9 @@ class GetPolygonProfile:
                 + names.get("cnes:hospital", [])
                 + names.get("cnes:urgencia", []),
             },
+            "places": (
+                _places(counts.get(PLACES_LAYER, {})) if PLACES_LAYER in found.imported else None
+            ),
             "buildings": profile.buildings(found.buildings, found.area_m2),
             "grid": profile.grid(found.grid, found.area_m2, CELL_AREA_M2),
             "features": {

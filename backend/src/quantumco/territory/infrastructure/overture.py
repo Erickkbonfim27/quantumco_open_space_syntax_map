@@ -1,4 +1,7 @@
-"""Overture Maps (https://overturemaps.org): edificações e, depois, lugares.
+"""Overture Maps (https://overturemaps.org): edificações e lugares (comércio e serviços).
+
+Lugares (tema *places*), mesmo release: 8.727 no retângulo, 97% Meta (CDLA Permissive 2.0); entram
+os com confiança ≥ 0,5, agrupados pelo primeiro nível da taxonomia. Sem telefone, e-mail ou site.
 
 O tema *buildings* junta OpenStreetMap, Microsoft ML Buildings e Google Open Buildings já
 conflacionados (sem prédio duplicado). Em Brusque, no release 2026-10-21.0: 94.366 prédios no
@@ -28,7 +31,7 @@ from shapely.geometry import MultiPolygon, Polygon, mapping
 
 from quantumco.territory.domain.grid import BRUSQUE_GRID
 from quantumco.territory.domain.profile import BUILDINGS_LAYER
-from quantumco.territory.domain.records import Building, LayerData
+from quantumco.territory.domain.records import Building, LayerData, Place
 
 log = logging.getLogger(__name__)
 
@@ -163,6 +166,111 @@ class OvertureBuildingsSource:
                     "discarded": {k: v for k, v in outcome.items() if k != "ok"},
                     "by_source": dict(by_source.most_common()),
                     "with_height": sum(1 for b in buildings if b.height_m is not None),
+                },
+            )
+        ]
+
+
+# ------------------------------------------------------------------ lugares (tema places)
+
+PLACES_LAYER = "lugares"
+PLACES_URL = "https://docs.overturemaps.org/guides/places/"
+PLACES_LICENSE = (
+    "CDLA Permissive 2.0 (Meta, Microsoft) · Apache 2.0 (Foursquare) · CC0 (AllThePlaces) · "
+    "Overture Maps Foundation"
+)
+MIN_PLACE_CONFIDENCE = (
+    0.5  # pré-registrado na spec (F2): abaixo disso, muito lugar fechado ou falso
+)
+# primeiro nível da taxonomia do Overture → grupo no painel (os outros níveis ficam em attrs)
+PLACE_GROUPS: Mapping[str, str] = {
+    "shopping": "comercio",
+    "services_and_business": "servicos",
+    "food_and_drink": "alimentacao",
+    "lifestyle_services": "beleza_cuidados",
+    "travel_and_transportation": "automotivo_transporte",
+    "health_care": "saude",
+    "cultural_and_historic": "cultura_religiao",
+    "education": "educacao",
+    "sports_and_recreation": "esporte_lazer",
+    "community_and_government": "comunidade_governo",
+    "arts_and_entertainment": "arte_entretenimento",
+    "lodging": "hospedagem",
+}
+
+
+def normalize_place(row: Mapping[str, Any]) -> tuple[Place | None, str]:
+    """Um lugar do Overture → Place (só nome, grupo, categoria, confiança e fonte)."""
+    confidence = float(row.get("confidence") or 0.0)
+    if confidence < MIN_PLACE_CONFIDENCE:
+        return None, "baixa_confianca"
+    if (row.get("operating_status") or "open") != "open":
+        return None, "fechado"
+    hierarchy = list((row.get("taxonomy") or {}).get("hierarchy") or [])
+    group = PLACE_GROUPS.get(hierarchy[0]) if hierarchy else None
+    if group is None:
+        return None, "sem_grupo"
+    geom = from_wkb(row["geometry"])
+    if geom.geom_type != "Point" or geom.is_empty:
+        return None, "geometria"
+    source = _primary(row.get("sources"))
+    name = (row.get("names") or {}).get("primary")
+    return (
+        Place(
+            layer=PLACES_LAYER,
+            kind=group,
+            lon=float(geom.x),
+            lat=float(geom.y),
+            name=str(name)[:160] if name else None,
+            attrs={
+                "category": hierarchy[-1],
+                "confidence": round(confidence, 3),
+                "source": source.get("dataset"),
+                "license": source.get("license"),
+            },
+        ),
+        "ok",
+    )
+
+
+class OverturePlacesSource:
+    name = "overture-lugares"
+
+    def __init__(self, cache_dir: Path, release: str = RELEASE) -> None:
+        self._cache = cache_dir
+        self._release = release
+
+    def fetch(self) -> Sequence[LayerData]:
+        path = download("place", self._cache, self._release)
+        places: list[Place] = []
+        outcome: Counter[str] = Counter()
+        # telefone, e-mail, site e redes sociais nem são lidos (spec, regras herdadas)
+        columns = ("id", "names", "confidence", "operating_status", "taxonomy", "sources",
+                   "geometry")  # fmt: skip
+        for row in _rows(path, columns):
+            place, why = normalize_place(row)
+            outcome[why] += 1
+            if place is not None:
+                places.append(place)
+        by_group = Counter(p.kind for p in places)
+        by_source = Counter(str(p.attrs.get("source")) for p in places)
+        log.info("  lugares: %d aceitos; descartes %s; por grupo %s",
+                 len(places), {k: v for k, v in outcome.items() if k != "ok"},
+                 dict(by_group))  # fmt: skip
+        return [
+            LayerData(
+                layer=PLACES_LAYER,
+                source=f"Overture Maps Foundation, tema places (release {self._release})",
+                source_url=PLACES_URL,
+                license=PLACES_LICENSE,
+                places=places,
+                meta={
+                    "release": self._release,
+                    "bbox": list(grid_bbox()),
+                    "min_confidence": MIN_PLACE_CONFIDENCE,
+                    "discarded": {k: v for k, v in outcome.items() if k != "ok"},
+                    "by_group": dict(by_group.most_common()),
+                    "by_source": dict(by_source.most_common()),
                 },
             )
         ]

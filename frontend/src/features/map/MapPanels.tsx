@@ -91,6 +91,7 @@ export const OPEN_LAYERS: [Overlay, string, string][] = [
   ["inundacao", "Inundação (suscetib.)", "IPT/SGB 2013"],
   ["saude", "Saúde", "CNES"],
   ["escolas", "Escolas", "CNEFE 2022"],
+  ["lugares", "Comércio e serviços", "Overture"],
 ];
 
 function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {

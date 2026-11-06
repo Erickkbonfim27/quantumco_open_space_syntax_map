@@ -59,6 +59,8 @@ class PolygonOverlaps:
     buildings: Sequence[BuildingStats] | None = None
     # amostra para desenhar: [lon, lat, área m², do OSM?] pelo ponto interno da pegada
     building_points: Sequence[tuple[float, float, float, bool]] = field(default_factory=tuple)
+    # camadas importadas no banco: separa "não importado" de "nenhum registro no polígono"
+    imported: frozenset[str] = frozenset()
 
 
 class TerritoryReader(Protocol):

@@ -48,12 +48,18 @@ O perfil de cada polígono sai em `POST /api/v1/territory/polygon-profile`.
 | N5 Equipamentos e uso | IBGE CNEFE 2022 (espécie do endereço, coordenada nível ≤ 3) + CNES (Ministério da Saúde) | contagem de pontos | 65.659 endereços · 506 estabelecimentos de saúde |
 | N6 Risco | SGB: setores de risco geológico (2018–19) e cartas de suscetibilidade IPT/SGB (2013) | área recortada; pessoas em risco proporcionais à área do setor | 199 setores · 1.820 polígonos de suscetibilidade |
 | N7 Forma construída (fase B, 2026-11-06) | Overture Maps, tema buildings, release `2026-10-21.0` (fixo em `territory/infrastructure/overture.py`), lido pela biblioteca `overturemaps` no retângulo da grade de 30 m | contagem pelo ponto interno da pegada; área no chão recortada; taxa de ocupação = área no chão ÷ área do polígono | 94.366 edificações (Google 66.417 · Microsoft 27.214 · OSM 735); 2 descartadas < 10 m²; altura em 8 |
+| N5 Lugares (fase B) | Overture Maps, tema places, mesmo release; grupo = 1º nível da taxonomia; confiança ≥ 0,5 (pré-registrado) | contagem de pontos por grupo | 5.797 de 8.727 (2.790 com confiança baixa, 140 sem grupo); 97% Meta |
+| N3/N4 Idade, alfabetização e saneamento (fase B) | IBGE Censo 2022, agregados por setor: demografia (V01031–V01041), alfabetização (V00900 ÷ V00900+V00901), características do domicílio 1 (V00001) e 2 (V00111 água da rede, V00309 esgoto na rede geral ou pluvial, V00397 lixo coletado) | dasimétrico, como a população; setor com valor sigiloso sai do numerador **e** da base | cidade: alfabetização 98,2% · água 88,5% · esgoto 19,5% · lixo 96,1% · 60+ 13,1%; sigilo em 10 (idade), 22 (alfabetização) e 14 (saneamento) setores |
 
 Cuidados: o CNES traz telefone e e-mail de consultórios; guardamos só nome, tipo, SUS e coordenada.
 O CNEFE mostra obras "em construção" **em 2022**, não hoje.
 Edificações: licença do tema ODbL 1.0 (Microsoft ML Buildings: ODbL; Google Open Buildings: CC BY 4.0),
 crédito "© OpenStreetMap contributors, Overture Maps Foundation" no mapa e no painel. Guardamos a
 confiança da detecção (Google) para filtrar depois sem reimportar.
+Lugares: licença por fonte (Meta e Microsoft CDLA Permissive 2.0, Foursquare Apache 2.0,
+AllThePlaces CC0), guardada em cada ponto; telefone, e-mail, site e redes sociais nem são lidos.
+Alfabetização: a primeira versão somava as 13 faixas de idade (V00644–V00656) como base e deu
+104,8% na cidade (o sigilo de uma faixa derrubava a base do setor); trocada por V00900 + V00901.
 
 ## Próximas fases
 

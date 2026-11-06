@@ -315,6 +315,61 @@ function reliefNote(relief: Relief | "erro" | undefined): string {
   return `Relevo: ${fmt(min, 0)} a ${fmt(max, 0)} m de altitude (desnível de ${fmt(max - min, 0)} m). Curvas a cada ${fmt(step, step % 1 ? 1 : 0)} m, escala vertical ${fmt(exaggeration, 1)}×.`;
 }
 
+type Demography = TerritoryProfile["demography"];
+
+const AGE_BANDS: [keyof NonNullable<Demography>["ages"], string, number][] = [
+  ["age_0_14", "0–14", 0.25],
+  ["age_15_29", "15–29", 0.5],
+  ["age_30_59", "30–59", 0.75],
+  ["age_60p", "60+", 0.95],
+];
+
+function ageBar(d: Demography): Card["bar"] {
+  if (!d) return undefined;
+  return AGE_BANDS.map(([key, , alpha]) => ({ w: d.ages[key] ?? 0, c: `rgba(var(--fg-rgb), ${alpha})` }));
+}
+
+function ageNote(d: Demography): string {
+  if (!d || !Object.keys(d.ages).length) return "";
+  const ages = AGE_BANDS.map(([key, label]) => `${label} ${pct(d.ages[key])}`).join(" · ");
+  const hidden = d.tracts_suppressed.literacy;
+  const literacy =
+    d.literacy_15p === null
+      ? ""
+      : ` · alfabetização (15+) ${pct(d.literacy_15p)}${hidden ? ` (sem ${hidden} setores sigilosos)` : ""}`;
+  return ` Idade (barra, do mais claro ao mais escuro): ${ages}${literacy}.`;
+}
+
+function sanitationNote(d: Demography): string {
+  const s = d?.sanitation;
+  if (!s || s.sewer_network === undefined) return "";
+  return ` Saneamento (domicílios): água da rede ${pct(s.water_network)} · esgoto na rede geral ou pluvial ${pct(s.sewer_network)} · lixo coletado ${pct(s.garbage_collected)}.`;
+}
+
+const PLACE_LABELS: Record<string, string> = {
+  comercio: "comércio",
+  servicos: "serviços",
+  alimentacao: "alimentação",
+  beleza_cuidados: "beleza",
+  automotivo_transporte: "automotivo",
+  saude: "saúde",
+  cultura_religiao: "cultura/religião",
+  educacao: "educação",
+  esporte_lazer: "esporte",
+  comunidade_governo: "comunidade",
+  arte_entretenimento: "arte",
+  hospedagem: "hospedagem",
+};
+
+function placesNote(places: TerritoryProfile["places"]): string {
+  if (!places || !places.total) return "";
+  const top = Object.entries(places.by_kind)
+    .slice(0, 4)
+    .map(([kind, n]) => `${n} ${PLACE_LABELS[kind] ?? kind}`)
+    .join(", ");
+  return `${places.total} lugares com nome (Overture): ${top}`;
+}
+
 function territoryCards(profile: Profile): Record<"forma" | "risco" | "equip" | "entorno" | "pop", Card> {
   if (profile === undefined || profile === "erro") {
     const v = profile === "erro" ? "indisponível" : "…";
@@ -362,6 +417,7 @@ function territoryCards(profile: Profile): Record<"forma" | "risco" | "equip" | 
       ],
       note:
         [
+          placesNote(profile.places),
           a.by_kind.em_construcao ? `${a.by_kind.em_construcao} obras em andamento (2022)` : "",
           a.by_kind.religioso ? `${a.by_kind.religioso} templos` : "",
           h.public_units.length ? `Unidades: ${h.public_units.slice(0, 3).join(", ")}` : "",
@@ -376,18 +432,22 @@ function territoryCards(profile: Profile): Record<"forma" | "risco" | "equip" | 
             [pct(s.lighting), "iluminação"],
             [pct(s.trees), "arborização"],
           ],
-          note: `Rampa ${pct(s.ramp)} · ponto de ônibus ${pct(s.bus_stop)} · ciclovia ${pct(s.bike)} · obstáculo na calçada ${pct(s.obstacle)} (domicílios por face de quadra).`,
+          note: `Rampa ${pct(s.ramp)} · ponto de ônibus ${pct(s.bus_stop)} · ciclovia ${pct(s.bike)} · obstáculo na calçada ${pct(s.obstacle)} (domicílios por face de quadra).${sanitationNote(profile.demography)}`,
         }
-      : { metrics: [["–", "fora da pesquisa"], ["–", ""], ["–", ""]], note: "O IBGE só pesquisou o entorno em setores urbanos." },
+      : {
+          metrics: [["–", "fora da pesquisa"], ["–", ""], ["–", ""]],
+          note: `O IBGE só pesquisou o entorno em setores urbanos.${sanitationNote(profile.demography)}`,
+        },
     pop: {
       metrics: [
         [p.people.toLocaleString("pt-BR"), "habitantes"],
         [p.density_km2 === null ? "–" : fmt(p.density_km2, 0), "hab/km²"],
         [brl(p.income_mean), "renda média"],
       ],
+      bar: ageBar(profile.demography),
       note: `Estimativa: ${p.households.toLocaleString("pt-BR")} domicílios ocupados · ${pct(p.unoccupied_share)} não ocupados · ${p.tracts} setores${
         p.tracts_income_suppressed ? ` (${p.tracts_income_suppressed} com renda sigilosa)` : ""
-      }`,
+      }.${ageNote(profile.demography)}`,
     },
   };
 }

@@ -454,6 +454,12 @@ _MAP_LAYERS = {
         geom="ST_Transform(geom, 4326)", props="json_build_object('nome', name)"
     )
     + " from territory.places where layer = 'cnefe' and kind = 'ensino'",
+    "lugares": _FEATURE.format(
+        geom="ST_Transform(geom, 4326)",
+        props="json_build_object('nome', name, 'grupo', kind, 'categoria', attrs -> 'category', "
+        "'fonte', attrs -> 'source')",
+    )
+    + " from territory.places where layer = 'lugares'",
 }
 
 
@@ -585,6 +591,7 @@ class PostgisTerritoryReader:
                 (round(float(r[0]), 6), round(float(r[1]), 6), round(float(r[2])), bool(r[3]))
                 for r in building_points
             ],
+            imported=frozenset(str(r[0]) for r in imported),
         )
 
 

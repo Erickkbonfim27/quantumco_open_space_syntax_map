@@ -4,10 +4,14 @@ from typing import Any
 
 from pyproj import Transformer
 from shapely import to_wkb
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Point, Polygon
 
 from quantumco.territory.domain.grid import BRUSQUE_GRID
-from quantumco.territory.infrastructure.overture import grid_bbox, normalize_building
+from quantumco.territory.infrastructure.overture import (
+    grid_bbox,
+    normalize_building,
+    normalize_place,
+)
 
 TO_WGS84 = Transformer.from_crs(31982, 4326, always_xy=True)
 
@@ -59,6 +63,41 @@ def test_source_falls_back_to_first_cited_dataset() -> None:
     b, _ = normalize_building(row(sources=None))
     assert b is not None
     assert b.source == "desconhecida"
+
+
+def place_row(**over: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "id": "3fd5",
+        "geometry": to_wkb(Point(-48.92, -27.10)),
+        "confidence": 0.97,
+        "operating_status": None,
+        "names": {"primary": "Restaurante Mesa do Colono"},
+        "taxonomy": {"primary": "restaurant", "hierarchy": ["food_and_drink", "restaurant"]},
+        "sources": [{"property": "", "dataset": "meta", "license": "CDLA-Permissive-2.0"}],
+    }
+    return base | over
+
+
+def test_place_keeps_group_category_and_license_only() -> None:
+    p, why = normalize_place(place_row())
+    assert why == "ok"
+    assert p is not None
+    assert (p.layer, p.kind, p.name) == ("lugares", "alimentacao", "Restaurante Mesa do Colono")
+    assert dict(p.attrs) == {
+        "category": "restaurant",
+        "confidence": 0.97,
+        "source": "meta",
+        "license": "CDLA-Permissive-2.0",
+    }
+    assert (p.lon, p.lat) == (-48.92, -27.10)
+
+
+def test_places_below_confidence_closed_or_ungrouped_are_discarded() -> None:
+    assert normalize_place(place_row(confidence=0.49))[1] == "baixa_confianca"
+    assert normalize_place(place_row(operating_status="permanently_closed"))[1] == "fechado"
+    river = {"primary": "river", "hierarchy": ["geographic_entities", "river"]}
+    assert normalize_place(place_row(taxonomy=river))[1] == "sem_grupo"
+    assert normalize_place(place_row(taxonomy=None))[1] == "sem_grupo"
 
 
 def test_grid_bbox_contains_every_grid_corner() -> None:
