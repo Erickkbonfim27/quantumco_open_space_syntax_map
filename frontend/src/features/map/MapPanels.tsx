@@ -169,6 +169,11 @@ export function LayerToggles({
           <span className="mono muted-2 small toggle-source">{source}</span>
         </Toggle>
       ))}
+      <Toggle on={flags.predios} onClick={() => onToggle("predios")}>
+        <span className="toggle-swatch toggle-swatch-ink" aria-hidden="true" />
+        Edificações
+        <span className="mono muted-2 small toggle-source">Overture · zoom 13+</span>
+      </Toggle>
       {error && <div className="form-error">Não foi possível carregar a camada “{error}”.</div>}
     </div>
   );

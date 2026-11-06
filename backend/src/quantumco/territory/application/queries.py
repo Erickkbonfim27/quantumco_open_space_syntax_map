@@ -118,6 +118,7 @@ class GetPolygonProfile:
             "features": {
                 "points": [list(p) for p in found.points],
                 "zones": [dict(z) for z in found.zone_shapes],
+                "buildings": [list(b) for b in found.building_points],
             },
         }
 

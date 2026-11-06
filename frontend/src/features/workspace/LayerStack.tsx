@@ -9,6 +9,7 @@ import { inRing } from "./geometry";
 
 /** De cima para baixo, como no design (N1 na base da pilha). Acentos em tokens do tema. */
 const LAYERS = [
+  { key: "forma", level: "N7", name: "FORMA CONSTRUÍDA", accent: "var(--text-soft)" },
   { key: "risco", level: "N6", name: "RISCO", accent: "var(--danger)" },
   { key: "equip", level: "N5", name: "EQUIPAMENTOS E USO", accent: "var(--green-text)" },
   { key: "entorno", level: "N4", name: "ENTORNO URBANO", accent: "var(--text-soft)" },
@@ -162,6 +163,21 @@ function drawTile(
     outline(ink.fg(0.25));
     return;
   }
+  if (layer === "forma") {
+    // cada prédio como um quadrado com a área da pegada (amostra de até 2.500)
+    g.save();
+    path();
+    g.clip();
+    const pxPerMeter = scale / 111_320;
+    for (const [lon, lat, area, osm] of data.features.buildings ?? []) {
+      const side = Math.max(1.2, Math.sqrt(area) * pxPerMeter);
+      g.fillStyle = osm ? ink.fg(0.95) : ink.fg(0.62);
+      g.fillRect(X(lon) - side / 2, Y(lat) - side / 2, side, side);
+    }
+    g.restore();
+    outline();
+    return;
+  }
   if (layer === "risco") {
     g.save();
     path();
@@ -227,11 +243,47 @@ function drawTile(
   outline();
 }
 
-function territoryCards(profile: Profile): Record<"risco" | "equip" | "entorno" | "pop", Card> {
+const ML_SOURCES: Record<string, string> = {
+  "Google Open Buildings": "rgba(var(--fg-rgb), 0.62)",
+  "Microsoft ML Buildings": "rgba(var(--fg-rgb), 0.36)",
+  OpenStreetMap: "rgba(var(--fg-rgb), 0.95)",
+};
+
+function formCard(b: TerritoryProfile["buildings"]): Card {
+  if (!b) {
+    return {
+      metrics: [["–", "edificações"], ["–", "taxa de ocupação"], ["–", "área construída"]],
+      note: "Edificações ainda não importadas neste banco.",
+    };
+  }
+  const total = b.count || 1;
+  const machine = (b.by_source["Google Open Buildings"] ?? 0) + (b.by_source["Microsoft ML Buildings"] ?? 0);
+  const height =
+    b.with_height_share && b.with_height_share >= 0.05 && b.mean_height_m !== null
+      ? `Altura média ${fmt(b.mean_height_m, 1)} m (${pct(b.with_height_share)} com altura).`
+      : "Altura quase nunca informada: só a pegada no chão.";
+  return {
+    metrics: [
+      [b.count.toLocaleString("pt-BR"), "edificações"],
+      [pct(b.coverage_ratio), "taxa de ocupação"],
+      [`${b.footprint_m2.toLocaleString("pt-BR")} m²`, "área no chão"],
+    ],
+    bar: Object.entries(b.by_source).map(([source, n]) => ({
+      w: n / total,
+      c: ML_SOURCES[source] ?? "rgba(var(--fg-rgb), 0.2)",
+    })),
+    note: `${pct(machine / total)} detectadas por satélite (Google, Microsoft), ${pct(
+      (b.by_source.OpenStreetMap ?? 0) / total,
+    )} mapeadas no OSM. ${height} Taxa = pegada ÷ área do polígono (inclui ruas).`,
+  };
+}
+
+function territoryCards(profile: Profile): Record<"forma" | "risco" | "equip" | "entorno" | "pop", Card> {
   if (profile === undefined || profile === "erro") {
     const v = profile === "erro" ? "indisponível" : "…";
     const blank = (labels: string[]): Card => ({ metrics: labels.map((l) => [v, l]) });
     return {
+      forma: blank(["edificações", "taxa de ocupação", "área no chão"]),
       risco: blank(["setores (SGB)", "pessoas (est.)", "inundação alta"]),
       equip: blank(["escolas", "saúde (CNES)", "não residencial"]),
       entorno: blank(["com calçada", "iluminação", "arborização"]),
@@ -246,6 +298,7 @@ function territoryCards(profile: Profile): Record<"risco" | "equip" | "entorno" 
   const slide = susceptibility.suscet_movimento_de_massa?.Alta ?? 0;
   const school = a.by_kind.ensino ?? 0;
   return {
+    forma: formCard(profile.buildings),
     risco: {
       metrics: [
         [String(r.sectors), r.worst ? `setores · ${r.worst.toLowerCase()}` : "setores (SGB)"],
@@ -381,7 +434,7 @@ export function LayerStack({
     },
   };
 
-  const spacing = 92;
+  const spacing = 80; // 7 níveis: um pouco mais juntos que os 92 px de quando eram 6
   const middle = (LAYERS.length - 1) / 2;
   const sources =
     profile && profile !== "erro"
@@ -466,7 +519,8 @@ export function LayerStack({
           })}
           <p className="muted small layer-note">
             Fontes: IBGE Censo 2022 (setores, renda, entorno, CNEFE) · SGB (risco 2018–19,
-            suscetibilidade 2013) · CNES{sources ? ` · importado em ${sources.split("-").reverse().join("/")}` : ""}.
+            suscetibilidade 2013) · CNES · edificações © OpenStreetMap contributors, Overture Maps
+            Foundation (ODbL){sources ? ` · importado em ${sources.split("-").reverse().join("/")}` : ""}.
             Dados por setor estimados pela parcela de domicílios do CNEFE dentro do polígono.
           </p>
         </div>

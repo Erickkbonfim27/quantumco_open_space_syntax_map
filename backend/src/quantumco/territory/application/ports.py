@@ -57,6 +57,8 @@ class PolygonOverlaps:
     # fase B: camadas da grade de 30 m e edificações (None = camada não importada)
     grid: Sequence[GridStat] = field(default_factory=tuple)
     buildings: Sequence[BuildingStats] | None = None
+    # amostra para desenhar: [lon, lat, área m², do OSM?] pelo ponto interno da pegada
+    building_points: Sequence[tuple[float, float, float, bool]] = field(default_factory=tuple)
 
 
 class TerritoryReader(Protocol):

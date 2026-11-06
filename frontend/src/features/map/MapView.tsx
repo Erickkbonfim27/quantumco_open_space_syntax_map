@@ -86,6 +86,16 @@ export const OVERLAY_COLOR: Record<Overlay, string> = {
   escolas: "#F4F6F5",
 };
 
+// Edificações (Overture, ODbL): tiles vetoriais da nossa API, a partir do z13.
+const BUILDINGS = "predios";
+const BUILDINGS_MIN_ZOOM = 13;
+const BUILDINGS_ATTRIBUTION = "© OpenStreetMap contributors, Overture Maps Foundation";
+const buildingTilesUrl = () =>
+  new URL(`${config.apiUrl}/api/v1/territory/tiles/buildings/{z}/{x}/{y}.mvt`, window.location.origin)
+    .toString()
+    .replace(/%7B/g, "{")
+    .replace(/%7D/g, "}");
+
 // Relevo: Terrain Tiles da AWS (Mapzen; SRTM, USGS, ETOPO1), dados abertos, codificação terrarium.
 const DEM_TILES = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
 const DEM_ATTRIBUTION =
@@ -104,6 +114,7 @@ export interface MapFlags {
   risco: boolean;
   saude: boolean;
   escolas: boolean;
+  predios: boolean;
 }
 
 export const DEFAULT_FLAGS: MapFlags = {
@@ -117,6 +128,7 @@ export const DEFAULT_FLAGS: MapFlags = {
   risco: false,
   saude: false,
   escolas: false,
+  predios: false,
 };
 
 export interface Selection {
@@ -178,6 +190,18 @@ function popupHtml(overlay: Overlay, props: Record<string, unknown>): string {
   }
   if (overlay === "escolas") return `<strong>${str("nome")}</strong><br><span>Escola · CNEFE 2022</span>`;
   return `<strong>Suscetibilidade ${str("categoria").toLowerCase()} a inundação</strong><br><span>IPT/SGB 2013</span>`;
+}
+
+function buildingPopupHtml(props: Record<string, unknown>): string {
+  const source = escapeHtml(String(props.source ?? "Overture"));
+  const area = typeof props.area_m2 === "number" ? `${props.area_m2.toLocaleString("pt-BR")} m² no chão` : "";
+  const conf =
+    typeof props.confidence === "number"
+      ? ` · confiança ${props.confidence.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}`
+      : "";
+  const height = typeof props.height_m === "number" ? ` · ${props.height_m} m de altura` : "";
+  const floors = typeof props.floors === "number" ? ` · ${props.floors} andares` : "";
+  return `<strong>Edificação</strong><br>${area}${height}${floors}<br><span>${source}${conf} · Overture</span>`;
 }
 
 const NO_LINK: FilterSpecification = ["==", ["get", "link_id"], ""];
@@ -361,6 +385,13 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       instance.addSource(MUNICIPALITY, { type: "geojson", data: empty() });
       instance.addSource(NETWORK, { type: "geojson", data: empty(), promoteId: "link_id" });
       for (const overlay of OVERLAYS) instance.addSource(overlay, { type: "geojson", data: empty() });
+      instance.addSource(BUILDINGS, {
+        type: "vector",
+        tiles: [buildingTilesUrl()],
+        minzoom: BUILDINGS_MIN_ZOOM,
+        maxzoom: 16, // acima disso o MapLibre amplia o tile do z16
+        attribution: BUILDINGS_ATTRIBUTION,
+      });
       instance.addSource("polys", { type: "geojson", data: empty(), promoteId: "id" });
       instance.addSource("draft", { type: "geojson", data: empty() });
       instance.addSource("edits-lines", { type: "geojson", data: empty() });
@@ -414,6 +445,25 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
         paint: { "fill-color": OVERLAY_COLOR.risco, "fill-opacity": ["match", ["get", "categoria"], "Muito alto", 0.5, 0.32] },
       });
       add({ id: "risco-line", type: "line", source: "risco", layout: { visibility: "none" }, paint: { "line-color": OVERLAY_COLOR.risco, "line-width": 1 } });
+      // edificações por baixo da rede: a sintaxe continua legível por cima
+      add({
+        id: "predios",
+        type: "fill",
+        source: BUILDINGS,
+        "source-layer": "edificacoes",
+        minzoom: BUILDINGS_MIN_ZOOM,
+        layout: { visibility: "none" },
+        paint: { "fill-color": "#F4F6F5", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 13, 0.16, 17, 0.3] },
+      });
+      add({
+        id: "predios-line",
+        type: "line",
+        source: BUILDINGS,
+        "source-layer": "edificacoes",
+        minzoom: 15,
+        layout: { visibility: "none" },
+        paint: { "line-color": "#F4F6F5", "line-opacity": 0.35, "line-width": 0.6 },
+      });
       add({
         id: "links",
         type: "line",
@@ -598,17 +648,20 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
         renderDraft();
         return;
       }
-      const overlayLayers = (["escolas", "saude", "risco", "inundacao"] as const).filter(
+      const overlayLayers = (["escolas", "saude", "risco", "inundacao", "predios"] as const).filter(
         (id) => instance.getLayer(id) && instance.getLayoutProperty(id, "visibility") === "visible",
       );
       const hits = instance.queryRenderedFeatures(event.point, { layers: ["links-hit", "polys-fill", ...overlayLayers] });
       const point = hits.find((h) => h.layer.id === "escolas" || h.layer.id === "saude");
       const link = hits.find((h) => h.layer.id === "links-hit");
       const area = hits.find((h) => h.layer.id === "risco" || h.layer.id === "inundacao");
+      const building = hits.find((h) => h.layer.id === "predios");
       const polygon = hits.find((h) => h.layer.id === "polys-fill");
       const shown = point ?? (link ? undefined : area);
       if (shown) {
         popup.setLngLat(event.lngLat).setHTML(popupHtml(shown.layer.id as Overlay, shown.properties)).addTo(instance);
+      } else if (building && !link) {
+        popup.setLngLat(event.lngLat).setHTML(buildingPopupHtml(building.properties)).addTo(instance);
       } else popup.remove();
       if (link && !point) {
         live.current.onSelect({ properties: link.properties as LinkProperties, lngLat: [event.lngLat.lng, event.lngLat.lat] });
@@ -715,6 +768,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       m.setLayoutProperty("municipality-outline", "visibility", show(flags.lim));
       m.setLayoutProperty("polys-label", "visibility", show(flags.lab));
       m.setLayoutProperty("relevo", "visibility", show(flags.relevo || flags.terrain3d));
+      for (const id of ["predios", "predios-line"]) m.setLayoutProperty(id, "visibility", show(flags.predios));
       const has3d = Boolean(m.getTerrain());
       if (flags.terrain3d && !has3d) {
         m.setTerrain({ source: "dem-terrain", exaggeration: TERRAIN_EXAGGERATION });
@@ -767,6 +821,8 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       m.setPaintProperty("polys-label", "text-color", ink.ink);
       m.setPaintProperty("polys-label", "text-halo-color", ink.halo);
       m.setPaintProperty("edit-new", "line-color", ink.ink);
+      m.setPaintProperty("predios", "fill-color", ink.ink);
+      m.setPaintProperty("predios-line", "line-color", ink.ink);
       m.setPaintProperty("polys-line", "line-color", [
         "case",
         ["boolean", ["feature-state", "selected"], false],

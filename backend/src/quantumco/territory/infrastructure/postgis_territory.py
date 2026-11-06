@@ -370,10 +370,24 @@ select source, count(*) filter (where inside), coalesce(sum(a), 0),
 from b group by source
 """
 
+# Amostra estável (mesmo polígono → mesmos prédios) para o desenho do nível no painel.
+BUILDING_SAMPLE = 2500
+_BUILDING_POINTS = f"""{_POLY}
+select ST_X(p), ST_Y(p), area_m2, source = 'OpenStreetMap'
+from (
+    select ST_Transform(ST_PointOnSurface(b.geom), 4326) p, b.area_m2, b.source, b.building_id
+    from territory.buildings b, poly
+    where b.geom && poly.g and ST_Intersects(ST_PointOnSurface(b.geom), poly.g)
+    order by md5(b.building_id)
+    limit {BUILDING_SAMPLE}
+) s
+"""
+
 _BUILDING_TILE = f"""
 select coalesce(ST_AsMVT(t, '{BUILDINGS_LAYER}', 4096, 'geom'), '')
 from (
-    select b.source, b.height_m, b.floors,
+    select b.source, b.height_m, b.floors, round(b.area_m2) area_m2,
+           round(b.confidence::numeric, 2)::real confidence,
            ST_AsMVTGeom(ST_Transform(b.geom, 3857), ST_TileEnvelope(%(z)s, %(x)s, %(y)s),
                         4096, 64, true) geom
     from territory.buildings b
@@ -519,10 +533,10 @@ class PostgisTerritoryReader:
                 return None
             grid_kinds = {r[0]: r[1] for r in imported if r[1]}
             grid_stats = _grid_stats(conn, params, grid_kinds) if grid_kinds else []
-            building_rows = (
-                conn.execute(_BUILDINGS, params).fetchall()
-                if any(r[0] == BUILDINGS_LAYER for r in imported)
-                else None
+            has_buildings = any(r[0] == BUILDINGS_LAYER for r in imported)
+            building_rows = conn.execute(_BUILDINGS, params).fetchall() if has_buildings else None
+            building_points = (
+                conn.execute(_BUILDING_POINTS, params).fetchall() if has_buildings else []
             )
             (area_m2,) = conn.execute(f"{_POLY} select ST_Area(g) from poly", params).fetchone()  # type: ignore[misc]
             tracts = conn.execute(_TRACTS, params).fetchall()
@@ -567,6 +581,10 @@ class PostgisTerritoryReader:
                     for r in building_rows
                 ]
             ),
+            building_points=[
+                (round(float(r[0]), 6), round(float(r[1]), 6), round(float(r[2])), bool(r[3]))
+                for r in building_points
+            ],
         )
 
 

@@ -124,6 +124,19 @@ export const MEASURE_SHORT: Record<WorkspaceMeasure, string> = {
 };
 
 /** Perfil territorial (POST /territory/polygon-profile): IBGE, CNEFE, SGB e CNES. */
+export interface GridEntry {
+  kind: "continuous" | "categorical";
+  cells: number;
+  coverage: number | null;
+  mean?: number | null;
+  min?: number | null;
+  max?: number | null;
+  p10?: number | null;
+  p50?: number | null;
+  p90?: number | null;
+  shares?: Record<string, number>;
+}
+
 export interface TerritoryProfile {
   population: {
     people: number;
@@ -168,9 +181,22 @@ export interface TerritoryProfile {
     schools: string[];
   };
   health: { total: number; sus: number; by_kind: Record<string, number>; public_units: string[] };
+  /** Edificações (Overture); null = camada ainda não importada. */
+  buildings?: {
+    count: number;
+    footprint_m2: number;
+    coverage_ratio: number | null;
+    with_height_share: number | null;
+    mean_height_m: number | null;
+    by_source: Record<string, number>;
+  } | null;
+  /** Camadas da grade de 30 m (relevo, verde, calor, MapBiomas). */
+  grid?: Record<string, GridEntry>;
   features: {
     points: [number, number, string][];
     zones: { layer: string; category: string; geometry: Polygon | MultiPolygon | GeometryCollection }[];
+    /** amostra de prédios: [lon, lat, área m², do OSM?] */
+    buildings?: [number, number, number, boolean][];
   };
   layers: { layer: string; source: string; license: string; rows: number; fetched_at: string }[];
 }

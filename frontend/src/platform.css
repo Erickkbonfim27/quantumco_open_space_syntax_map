@@ -1408,6 +1408,11 @@
   margin-left: -4px;
   border-radius: 3px;
 }
+/* edificações: a cor é a tinta do tema (clara no escuro, grafite no claro) */
+.toggle-swatch-ink {
+  background: rgba(var(--fg-rgb), 0.45);
+  border-radius: 1px;
+}
 
 .toggle-source {
   margin-left: auto;
