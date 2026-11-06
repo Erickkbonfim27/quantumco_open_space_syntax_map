@@ -100,6 +100,22 @@ def test_places_below_confidence_closed_or_ungrouped_are_discarded() -> None:
     assert normalize_place(place_row(taxonomy=None))[1] == "sem_grupo"
 
 
+def test_importing_the_cli_does_not_open_proj() -> None:
+    """O worker faz fork depois de importar a CLI: PROJ aberto no pai derruba o filho no macOS."""
+    import subprocess  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
+    code = (
+        "import quantumco.entrypoints.cli.main\n"
+        "from quantumco.territory.infrastructure import overture as o\n"
+        "print(o._to_utm.cache_info().currsize + o._to_wgs84.cache_info().currsize)"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=120
+    )
+    assert out.stdout.strip() == "0"
+
+
 def test_grid_bbox_contains_every_grid_corner() -> None:
     west, south, east, north = grid_bbox()
     g = BRUSQUE_GRID

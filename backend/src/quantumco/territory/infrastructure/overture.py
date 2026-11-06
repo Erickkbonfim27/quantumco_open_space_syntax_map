@@ -15,6 +15,7 @@ O release é FIXO para a importação ser reproduzível; trocar de release é um
 
 from __future__ import annotations
 
+import functools
 import logging
 import time
 from collections import Counter
@@ -43,14 +44,24 @@ BUILDINGS_LICENSE = (
 )
 MIN_AREA_M2 = 10.0  # abaixo disso é quase sempre ruído do modelo (spec F1)
 
-_TO_UTM = Transformer.from_crs(4326, 31982, always_xy=True)
-_TO_WGS84 = Transformer.from_crs(31982, 4326, always_xy=True)
+
+# Criados só no primeiro uso, NUNCA na importação: a CLI importa este módulo e, se o pai do worker
+# abrir o banco interno do PROJ antes do fork, o processo filho morre no macOS (SIGSEGV em
+# sqlite/os_log ao converter coordenadas; 2026-11-06).
+@functools.cache
+def _to_utm() -> Transformer:
+    return Transformer.from_crs(4326, 31982, always_xy=True)
+
+
+@functools.cache
+def _to_wgs84() -> Transformer:
+    return Transformer.from_crs(31982, 4326, always_xy=True)
 
 
 def grid_bbox() -> tuple[float, float, float, float]:
     """Retângulo WGS84 (oeste, sul, leste, norte) que cobre a grade de 30 m inteira."""
     g = BRUSQUE_GRID
-    corners = [_TO_WGS84.transform(x, y) for x in (g.west, g.east) for y in (g.south, g.north)]
+    corners = [_to_wgs84().transform(x, y) for x in (g.west, g.east) for y in (g.south, g.north)]
     lons, lats = [c[0] for c in corners], [c[1] for c in corners]
     return min(lons), min(lats), max(lons), max(lats)
 
@@ -105,7 +116,7 @@ def normalize_building(row: Mapping[str, Any]) -> tuple[Building | None, str]:
     if not isinstance(geom, Polygon | MultiPolygon) or geom.is_empty:
         return None, "geometria"
     # interleaved=False: a função recebe (x, y) separados; o stub só conhece a forma intercalada
-    utm = shapely.transform(geom, cast(Any, _TO_UTM.transform), interleaved=False)
+    utm = shapely.transform(geom, cast(Any, _to_utm().transform), interleaved=False)
     if utm.area < MIN_AREA_M2:
         return None, "pequeno"
     source = _primary(row.get("sources"))
