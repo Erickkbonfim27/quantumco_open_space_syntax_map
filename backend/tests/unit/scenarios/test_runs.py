@@ -96,6 +96,23 @@ def test_execute_run_goes_through_stages() -> None:
     assert len(engine.calls) == 1
 
 
+def test_radii_are_validated_and_passed_to_the_engine() -> None:
+    run = ScenarioRun.request(
+        workspace_id=uuid4(), owner_id=uuid4(), edits=EDITS, now=NOW, radii=("800", "400")
+    )
+    assert run.radii == ("400", "800")
+    assert not run.whole_city
+    for bad in (("300",), ()):
+        with pytest.raises(RunRefusedError):
+            ScenarioRun.request(
+                workspace_id=uuid4(), owner_id=uuid4(), edits=EDITS, now=NOW, radii=bad
+            )
+    store, engine = RunStore(), Engine()
+    store.add(run)
+    ExecuteRun(runs=store, engine=engine, clock=FixedClock(), worker="w")(run.run_id)
+    assert engine.radii == [("400", "800")]
+
+
 def test_execute_run_reports_rejected_edits() -> None:
     store = RunStore()
     run = new_run()

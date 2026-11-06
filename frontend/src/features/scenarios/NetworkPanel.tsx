@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { formatMeters } from "../../lib/format";
 import type { NetworkEdit, ScenarioRun } from "../../lib/platformTypes";
 import type { Measure, NetworkCollection, RadiusKey } from "../../lib/types";
@@ -129,10 +131,23 @@ interface RunSectionProps {
   radius: RadiusKey;
   view: ResultView;
   resultReady: boolean;
-  onRequest: () => void;
+  onRequest: (radii: RadiusKey[]) => void;
   onCancel: () => void;
   onView: (view: ResultView) => void;
 }
+
+/** Ordem da metodologia (a do pedido e a da lista personalizada). */
+const ORDER: RadiusKey[] = ["400", "800", "1200", "2000", "n"];
+
+type ScopeKey = "caminhada" | "bairro" | "cidade" | "personalizado";
+const SCOPES: { key: ScopeKey; label: string; radii: RadiusKey[] | null; hint: string }[] = [
+  { key: "caminhada", label: "Caminhada", radii: ["400", "800"], hint: "400 e 800 m · só a região afetada · o mais rápido" },
+  { key: "bairro", label: "Bairro", radii: ["400", "800", "1200", "2000"], hint: "400 m a 2 km · só a região afetada · rápido" },
+  { key: "cidade", label: "Cidade", radii: ORDER, hint: "todos os raios, inclusive n · a rede inteira · vários minutos" },
+  { key: "personalizado", label: "Escolher", radii: null, hint: "marque os raios; com n, a rede inteira" },
+];
+
+const radiusText = (key: string) => RADII.find((r) => r.key === key)?.label ?? key;
 
 /** Cálculo do cenário: pedido, posição na fila, etapas com tempos e resultado. */
 export function RunSection({ edits, run, offset, busy, error, measure, radius, view, resultReady, ...on }: RunSectionProps) {
@@ -145,14 +160,29 @@ export function RunSection({ edits, run, offset, busy, error, measure, radius, v
   const expected = run?.expected_engine_seconds ?? null;
   const engineElapsed = engine ? (engine.seconds ?? (now - Date.parse(engine.at)) / 1000) : 0;
   const total = run ? ((run.finished_at ? Date.parse(run.finished_at) : now) - Date.parse(run.created_at)) / 1000 : 0;
-  const radiusLabel = RADII.find((r) => r.key === radius)?.label ?? radius;
-  const summaryKey = `${measure}_${radius === "n" || radius === "800" ? radius : "n"}`;
-  const change = run?.result?.summary[summaryKey];
+  // resumo de km: o raio do mapa se ele tem resumo; senão 800 m ou n (os que o motor resume)
+  const summary = run?.result?.summary ?? {};
+  const summaryKey = [`${measure}_${radius}`, `${measure}_800`, `${measure}_n`].find((k) => k in summary);
+  const change = summaryKey ? summary[summaryKey] : undefined;
+  const summaryRadius = summaryKey ? summaryKey.split("_")[1] ?? "" : "";
+  const computed = run?.result?.radii ?? run?.radii ?? ORDER;
+  const wholeCity = (run?.radii ?? ORDER).includes("n");
+
+  const [scope, setScope] = useState<ScopeKey>("bairro");
+  const [custom, setCustom] = useState<RadiusKey[]>(["400", "800"]);
+  const chosen = SCOPES.find((s) => s.key === scope)?.radii ?? custom;
+  const toggleCustom = (key: RadiusKey) =>
+    setCustom((list) => (list.includes(key) ? list.filter((k) => k !== key) : ORDER.filter((k) => k === key || list.includes(k))));
 
   return (
     <div className="ws-section">
       <span className="label">CÁLCULO DO CENÁRIO</span>
-      {!run && <p className="muted small">Recalcula a sintaxe da cidade inteira (todos os raios) com as suas edições e compara com o mapa atual.</p>}
+      {!run && (
+        <p className="muted small">
+          Recalcula a sintaxe com as suas edições e compara com o mapa atual. Sem o raio n, só a região que a edição pode
+          alterar é recalculada: o resultado é igual ao da cidade inteira, em bem menos tempo.
+        </p>
+      )}
 
       {run && (
         <div className={`run-card run-${run.status}`} aria-live="polite">
@@ -208,7 +238,9 @@ export function RunSection({ edits, run, offset, busy, error, measure, radius, v
                   ? engineElapsed < expected
                     ? `estimativa: ~${duration(expected - engineElapsed)} restantes`
                     : "quase lá (passou da média)"
-                  : "o motor leva alguns minutos na cidade inteira"}
+                  : wholeCity
+                    ? "o motor leva vários minutos na cidade inteira"
+                    : "só a região afetada: costuma ser rápido"}
               </span>
             </div>
           )}
@@ -230,7 +262,14 @@ export function RunSection({ edits, run, offset, busy, error, measure, radius, v
                 </div>
               ) : null}
               <span className="muted-2 small">
-                {MEASURE_LABEL[measure]} · R {radius === "n" || radius === "800" ? radiusLabel : "n"} · em Brusque · motor {duration(run.result.engine_seconds)}
+                {summaryKey ? `${MEASURE_LABEL[measure]} · R ${radiusText(summaryRadius)} · em Brusque · ` : ""}motor{" "}
+                {duration(run.result.engine_seconds)}
+              </span>
+              <span className="muted-2 small">
+                Raios: {computed.map(radiusText).join(", ")} ·{" "}
+                {run.result.scope === "regiao"
+                  ? `só a região afetada (${(run.result.region_links ?? 0).toLocaleString("pt-BR")} trechos; o resto não muda)`
+                  : "rede inteira"}
               </span>
               <div className="segmented segmented-3 run-views" role="radiogroup" aria-label="O que mostrar no mapa">
                 {(
@@ -257,6 +296,30 @@ export function RunSection({ edits, run, offset, busy, error, measure, radius, v
 
       {error && <div className="form-error">{error}</div>}
 
+      {!isActive && (
+        <div className="run-scope">
+          <span className="label ws-sublabel">ALCANCE</span>
+          <div className="segmented segmented-4" role="radiogroup" aria-label="Alcance do cálculo">
+            {SCOPES.map((s) => (
+              <button key={s.key} type="button" role="radio" aria-checked={scope === s.key} onClick={() => setScope(s.key)}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+          {scope === "personalizado" && (
+            <div className="run-radii" role="group" aria-label="Raios a calcular">
+              {ORDER.map((key) => (
+                <label key={key} className="run-radius">
+                  <input type="checkbox" checked={custom.includes(key)} onChange={() => toggleCustom(key)} />
+                  {key === "n" ? "n (cidade)" : radiusText(key)}
+                </label>
+              ))}
+            </div>
+          )}
+          <span className="muted-2 small">{SCOPES.find((s) => s.key === scope)?.hint}</span>
+        </div>
+      )}
+
       <div className="row-gap">
         {run?.status === "queued" && (
           <button type="button" className="pill pill-outline pill-sm" disabled={busy} onClick={on.onCancel}>
@@ -264,16 +327,19 @@ export function RunSection({ edits, run, offset, busy, error, measure, radius, v
           </button>
         )}
         {!isActive && (
-          <button type="button" className="pill pill-green pill-sm" disabled={!canRequest} onClick={on.onRequest}>
+          <button
+            type="button"
+            className="pill pill-green pill-sm"
+            disabled={!canRequest || chosen.length === 0}
+            onClick={() => on.onRequest(chosen)}
+          >
             {run && run.status !== "canceled" ? "Calcular de novo" : "Calcular cenário"}
           </button>
         )}
         {!isActive && edits.length === 0 && <span className="muted-2 small">adicione uma edição primeiro</span>}
+        {!isActive && edits.length > 0 && chosen.length === 0 && <span className="muted-2 small">marque pelo menos um raio</span>}
       </div>
-      <p className="muted-2 small">
-        Cálculo completo da cidade (todos os raios, inclusive n): leva alguns minutos. Pode fechar a página;
-        o resultado fica salvo no cenário.
-      </p>
+      <p className="muted-2 small">Pode fechar a página; o resultado fica salvo no cenário.</p>
     </div>
   );
 }

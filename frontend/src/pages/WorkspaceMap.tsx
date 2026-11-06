@@ -98,6 +98,18 @@ export function WorkspaceMap() {
   const [view, setView] = useState<ResultView>("atual");
   const [result, setResult] = useState<{ runId: string; manifest: ScenarioManifest; network: NetworkCollection } | null>(null);
   const runState = useScenarioRun(id);
+  // cenário só com raios locais: ao mostrar o resultado, sai de um raio não calculado (vai para o
+  // maior calculado). Chamado ao trocar a visualização, não num efeito.
+  const computedRadii = runState.run?.status === "done" ? runState.run.radii : undefined;
+  const showView = useCallback(
+    (next: ResultView) => {
+      setView(next);
+      if (next !== "atual" && computedRadii?.length && !computedRadii.includes(radius)) {
+        setRadius(computedRadii[computedRadii.length - 1] ?? radius);
+      }
+    },
+    [computedRadii, radius],
+  );
   const [basemap, setBasemap] = useBasemap();
   const editsRef = useRef<NetworkEdit[]>([]);
   const finishedLive = runState.finishedLive;
@@ -118,13 +130,13 @@ export function WorkspaceMap() {
       .then(([manifest, network]) => {
         if (!alive) return;
         setResult({ runId: doneRunId, manifest, network });
-        if (finishedLive) setView("diferenca"); // acabou agora, com a pessoa olhando
+        if (finishedLive) showView("diferenca"); // acabou agora, com a pessoa olhando
       })
       .catch(() => undefined);
     return () => {
       alive = false;
     };
-  }, [doneRunId, id, result, finishedLive]);
+  }, [doneRunId, id, result, finishedLive, showView]);
 
   const loadStats = useCallback(async (features: Workspace["features"]) => {
     const entries = await Promise.all(
@@ -478,12 +490,12 @@ export function WorkspaceMap() {
               radius={radius}
               view={view}
               resultReady={result !== null && result.runId === doneRunId}
-              onRequest={() => {
+              onRequest={(radii) => {
                 chooseEditTool(null);
-                void runState.request();
+                void runState.request(radii);
               }}
               onCancel={() => void runState.cancel()}
-              onView={setView}
+              onView={showView}
             />
             {showingResult && view === "diferenca" && <DeltaLegend />}
           </>

@@ -30,7 +30,13 @@ class CityseerAnalyzer:
     def __init__(self, crs_epsg: int = 31982) -> None:
         self._crs = crs_epsg
 
-    def analyze(self, pieces: Sequence[Piece], distances_m: Sequence[int]) -> EngineRun:
+    def analyze(
+        self,
+        pieces: Sequence[Piece],
+        distances_m: Sequence[int],
+        live: Sequence[bool] | None = None,
+    ) -> EngineRun:
+        """`live[i]` False: a reta i entra só como caminho (não é origem e sai sem valor)."""
         frame = gpd.GeoDataFrame(
             {"piece_id": [p.piece_id for p in pieces]},
             geometry=[LineString([p.start, p.end]) for p in pieces],
@@ -38,10 +44,6 @@ class CityseerAnalyzer:
         )
         graph = io.nx_from_generic_geopandas(frame, drop_self_loops_dist=0)
         dual = graphs.nx_to_dual(graph)
-        nodes, _, structure = io.network_structure_from_nx(dual)
-        log.info("grafo dual: %d nós, %d arestas", dual.number_of_nodes(), dual.number_of_edges())
-
-        nodes = networks.centrality_simplest(structure, nodes, distances=list(distances_m))
 
         # nó do dual → reta de origem (o id do nó dual é "<nóA>_<nóB>_k<chave>")
         node_to_piece: dict[str, str] = {}
@@ -49,6 +51,16 @@ class CityseerAnalyzer:
             node_to_piece[f"{u}_{v}_k{k}"] = data["piece_id"]
             node_to_piece[f"{v}_{u}_k{k}"] = data["piece_id"]
         position = {p.piece_id: i for i, p in enumerate(pieces)}
+        if live is not None:
+            for node in dual.nodes:
+                i = position.get(node_to_piece.get(str(node), ""), -1)
+                dual.nodes[node]["live"] = bool(live[i]) if i >= 0 else False
+            log.info("origens no motor: %d de %d retas", sum(live), len(pieces))
+
+        nodes, _, structure = io.network_structure_from_nx(dual)
+        log.info("grafo dual: %d nós, %d arestas", dual.number_of_nodes(), dual.number_of_edges())
+
+        nodes = networks.centrality_simplest(structure, nodes, distances=list(distances_m))
         rows = np.array([position.get(node_to_piece.get(str(idx), ""), -1) for idx in nodes.index])
         valid = rows >= 0
 

@@ -288,10 +288,19 @@ export function MethodologyPage() {
             <Section id="cenarios" title="Cenários “e se…”">
               <p>
                 Num cenário você <strong>remove</strong>, <strong>interdita</strong>,{" "}
-                <strong>cria</strong> ou <strong>redesenha</strong> vias. O pedido entra numa fila e a
-                cidade inteira é recalculada (todos os raios, inclusive n) com o mesmo motor e a mesma
-                metodologia do mapa publicado. Leva alguns minutos; a tela mostra a posição na fila e cada
-                etapa.
+                <strong>cria</strong> ou <strong>redesenha</strong> vias. O pedido entra numa fila e é
+                recalculado com o mesmo motor e a mesma metodologia do mapa publicado, nos raios que você
+                escolher: <strong>Caminhada</strong> (400 e 800 m), <strong>Bairro</strong> (400 m a 2 km),{" "}
+                <strong>Cidade</strong> (todos, inclusive n) ou uma escolha sua. A tela mostra a posição na
+                fila e cada etapa.
+              </p>
+              <p>
+                Sem o raio n, só a <strong>região que a edição pode alterar</strong> é recalculada, e o
+                resultado é <strong>igual</strong> ao da cidade inteira, não uma aproximação. No raio r, a
+                integração de um trecho só muda se a edição estiver a até r dele, e a escolha, a até 2r. Por
+                isso o cálculo recalcula os trechos a até 2r da edição, usando como origem tudo o que está a
+                até r deles (a rede inteira continua disponível para os caminhos), e o resto mantém o valor
+                publicado. Com o raio n, toda a rede muda, e o cálculo é da cidade inteira (leva minutos).
               </p>
               <ul>
                 <li>Interditar tem o mesmo efeito de remover na sintaxe (a via sai do grafo); muda só o rótulo.</li>

@@ -48,8 +48,8 @@ class RunRepository(Protocol):
         """Posição na fila (1 = o próximo a começar)."""
         ...
 
-    def expected_engine_seconds(self) -> float | None:
-        """Média do tempo do motor nos últimos cálculos concluídos (estimativa para a tela)."""
+    def expected_engine_seconds(self, radii: Sequence[str]) -> float | None:
+        """Média do tempo do motor nos últimos cálculos concluídos com os mesmos raios."""
         ...
 
     def queued_ids(self) -> list[UUID]: ...
@@ -76,10 +76,14 @@ class EditRejectedError(Exception):
 
 
 class ScenarioEngine(Protocol):
-    """Recálculo da cidade inteira com as edições (implementado pela Análise Sintática)."""
+    """Recálculo com as edições nos raios pedidos (implementado pela Análise Sintática)."""
 
     def run(
-        self, name: str, edits: Sequence[NetworkEdit], on_stage: Callable[[str], None]
+        self,
+        name: str,
+        edits: Sequence[NetworkEdit],
+        on_stage: Callable[[str], None],
+        radii: Sequence[str],
     ) -> Mapping[str, Any]: ...
 
     def forget(self, name: str) -> None:

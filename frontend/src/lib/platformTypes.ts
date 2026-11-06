@@ -6,6 +6,8 @@ import type {
   Polygon,
 } from "geojson";
 
+import type { RadiusKey } from "./types";
+
 export interface UserPreferences {
   theme?: "system" | "light" | "dark";
   basemap?: string;
@@ -71,6 +73,10 @@ export interface RunResult {
   snaps_m: number[];
   summary: Record<string, { km_up: number; km_down: number }>;
   preliminary: boolean;
+  /** raios calculados; "regiao" = só a área afetada (exato), "cidade" = com o raio n */
+  radii?: RadiusKey[];
+  scope?: "regiao" | "cidade";
+  region_links?: number | null;
 }
 
 /** Cálculo de um cenário na fila (GET /workspaces/{id}/runs/…). */
@@ -87,6 +93,8 @@ export interface ScenarioRun {
   attempts: number;
   error: string | null;
   result: RunResult | null;
+  /** alcance pedido (pedidos antigos: todos os raios) */
+  radii?: RadiusKey[];
   queue: { position: number | null; running: number; workers: number | null };
   expected_engine_seconds: number | null;
   server_time: string;

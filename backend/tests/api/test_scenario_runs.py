@@ -105,6 +105,27 @@ def test_daily_quota() -> None:
     assert "por dia" in refused.json()["detail"]
 
 
+def test_run_scope_defaults_to_local_radii_and_accepts_a_custom_choice() -> None:
+    c = client(Queue(), RunQuota(active_per_user=5, daily_per_user=10, queue_max=20))
+    ws = workspace(c)
+    c.put(f"/api/v1/workspaces/{ws}/edits", json={"edits": [{"type": "remove", "link_id": "1"}]})
+    default = c.post(f"/api/v1/workspaces/{ws}/runs").json()
+    assert default["radii"] == ["400", "800", "1200", "2000"]  # bairro: sem o raio n
+    assert default["expected_engine_seconds"] == 30.0  # estimativa do mesmo alcance
+    c.delete(f"/api/v1/workspaces/{ws}/runs/{default['id']}")
+
+    # fora de ordem e com "n": volta na ordem da metodologia; estimativa da cidade inteira
+    whole = c.post(f"/api/v1/workspaces/{ws}/runs", json={"radii": ["n", "400"]}).json()
+    assert whole["radii"] == ["400", "n"]
+    assert whole["expected_engine_seconds"] == 600.0
+    c.delete(f"/api/v1/workspaces/{ws}/runs/{whole['id']}")
+
+    for bad in (["300"], []):
+        r = c.post(f"/api/v1/workspaces/{ws}/runs", json={"radii": bad})
+        assert r.status_code == 409, bad
+        assert "raio" in r.json()["detail"].lower()
+
+
 def test_runs_and_results_are_private() -> None:
     owner = client()
     ws = workspace(owner)

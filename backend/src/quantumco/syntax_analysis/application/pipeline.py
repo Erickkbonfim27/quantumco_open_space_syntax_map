@@ -9,6 +9,7 @@ import numpy as np
 from quantumco.syntax_analysis.application.config import AnalysisConfig
 from quantumco.syntax_analysis.application.ports import EngineRun, FloatArray
 from quantumco.syntax_analysis.domain.measures import nach, nain
+from quantumco.syntax_analysis.domain.radius import Radius
 from quantumco.syntax_analysis.domain.segmentation import Piece
 
 
@@ -18,6 +19,8 @@ def raw_link_measures(
     piece_report_ids: Sequence[str],
     run: EngineRun,
     cfg: AnalysisConfig,
+    *,
+    radii: Sequence[Radius] | None = None,
 ) -> dict[str, FloatArray]:
     """NAIN e NACH por trecho (média ponderada pela extensão das retas), por raio.
 
@@ -38,7 +41,7 @@ def raw_link_measures(
         return out
 
     columns: dict[str, FloatArray] = {}
-    for radius in cfg.radii:
+    for radius in radii or cfg.radii:
         raw = run.by_distance[radius.distance_m(cfg.radius_n_m)]
         columns[f"nain_{radius.key}"] = to_links(nain(raw.node_count, raw.total_depth))
         columns[f"nach_{radius.key}"] = to_links(nach(raw.choice, raw.total_depth))

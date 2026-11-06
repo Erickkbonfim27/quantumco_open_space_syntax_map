@@ -42,7 +42,14 @@ class NetworkSnapshotSource(Protocol):
 
 
 class AngularAnalyzer(Protocol):
-    def analyze(self, pieces: Sequence[Piece], distances_m: Sequence[int]) -> EngineRun: ...
+    def analyze(
+        self,
+        pieces: Sequence[Piece],
+        distances_m: Sequence[int],
+        live: Sequence[bool] | None = None,
+    ) -> EngineRun:
+        """`live`: retas que são origem (None = todas); as outras entram só como caminho."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)

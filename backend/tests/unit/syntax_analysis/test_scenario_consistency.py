@@ -64,7 +64,12 @@ def fake_values(piece: Piece, distance_m: int) -> tuple[float, float, float]:
 
 
 class LocalEngine:
-    def analyze(self, pieces: Sequence[Piece], distances_m: Sequence[int]) -> EngineRun:
+    def analyze(
+        self,
+        pieces: Sequence[Piece],
+        distances_m: Sequence[int],
+        live: Sequence[bool] | None = None,
+    ) -> EngineRun:
         by_distance: dict[int, RawMeasures] = {}
         for distance in distances_m:
             rows = np.array([fake_values(p, distance) for p in pieces])

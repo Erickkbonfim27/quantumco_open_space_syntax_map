@@ -20,7 +20,13 @@ from quantumco.scenarios.application.ports import (
     ScenarioEngine,
 )
 from quantumco.scenarios.application.workspaces import WorkspaceNotFoundError, Workspaces
-from quantumco.scenarios.domain.run import RunQuota, RunRefusedError, RunStatus, ScenarioRun
+from quantumco.scenarios.domain.run import (
+    RunQuota,
+    RunRefusedError,
+    RunStatus,
+    ScenarioRun,
+    check_radii,
+)
 from quantumco.shared_kernel.clock import Clock
 
 log = logging.getLogger(__name__)
@@ -63,8 +69,17 @@ class ScenarioRuns:
         self._clock = clock
         self._quota = quota
 
-    def request(self, owner_id: UUID, workspace_id: UUID, *, unlimited: bool = False) -> RunView:
-        """`unlimited`: sem limite diário (o dono do site, para testes)."""
+    def request(
+        self,
+        owner_id: UUID,
+        workspace_id: UUID,
+        *,
+        unlimited: bool = False,
+        radii: object = None,
+    ) -> RunView:
+        """`unlimited`: sem limite diário (o dono do site, para testes). `radii`: alcance pedido
+        (lista de "400", "800", "1200", "2000", "n"; padrão: os raios locais)."""
+        chosen = check_radii(radii)
         workspace = self._workspaces.get(owner_id, workspace_id)
         if not workspace.edits:
             raise RunRefusedError("Adicione pelo menos uma edição na rede antes de calcular.")
@@ -81,7 +96,11 @@ class ScenarioRuns:
             unlimited=unlimited,
         )
         run = ScenarioRun.request(
-            workspace_id=workspace_id, owner_id=owner_id, edits=tuple(workspace.edits), now=now
+            workspace_id=workspace_id,
+            owner_id=owner_id,
+            edits=tuple(workspace.edits),
+            now=now,
+            radii=chosen,
         )
         self._runs.add(run)
         try:
@@ -134,7 +153,9 @@ class ScenarioRuns:
             position=position,
             running=counts.running_total,
             workers=workers,
-            expected_engine_s=self._runs.expected_engine_seconds() if run.active else None,
+            expected_engine_s=(
+                self._runs.expected_engine_seconds(run.radii) if run.active else None
+            ),
         )
 
 
@@ -184,7 +205,7 @@ class ExecuteRun:
 
         name = result_name(run.workspace_id)
         try:
-            outcome = self._engine.run(name, run.edits, on_stage)
+            outcome = self._engine.run(name, run.edits, on_stage, run.radii)
         except _RunGoneError:
             log.info("cálculo %s: cenário apagado durante o cálculo; abandonado", run_id)
             self._engine.forget(name)

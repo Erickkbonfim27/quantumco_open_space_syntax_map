@@ -1,9 +1,10 @@
 """Caso de uso: cenário "e se…" sobre a análise publicada (laboratório, Q23).
 
-Recalcula a cidade inteira (todos os raios, incluindo n) com o mesmo motor e a mesma
-metodologia da análise oficial, e compara trecho a trecho com a base. As classes do cenário usam
-os CORTES DA BASE, para que ganhos e perdas fiquem visíveis (percentis do próprio cenário
-reescalonariam tudo e esconderiam o efeito).
+Recalcula os raios escolhidos com o mesmo motor e a mesma metodologia da análise oficial, e
+compara trecho a trecho com a base. Com o raio n, a cidade inteira; sem ele, só a região que a
+edição pode alterar, com resultado igual ao da cidade inteira (domain/scope.py). As classes do
+cenário usam os CORTES DA BASE, para que ganhos e perdas fiquem visíveis (percentis do próprio
+cenário reescalonariam tudo e esconderiam o efeito).
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from quantumco.syntax_analysis.application.ports import (
 )
 from quantumco.syntax_analysis.domain.edits import AddStreet, Edit, RemoveLink, apply_edits
 from quantumco.syntax_analysis.domain.percentiles import class_cutoffs, classify_by_cutoffs
+from quantumco.syntax_analysis.domain.scope import Region, affected_region, check_radii, is_local
 from quantumco.syntax_analysis.domain.segmentation import explode
 
 log = logging.getLogger(__name__)
@@ -64,8 +66,13 @@ class RunScenario:
         name: str,
         edits: Sequence[Edit],
         on_stage: Callable[[str], None] | None = None,
+        radii: Sequence[str] | None = None,
     ) -> tuple[ScenarioResult, str]:
-        """`on_stage` recebe loading, editing, engine, comparing e saving, nessa ordem."""
+        """`on_stage` recebe loading, editing, engine, comparing e saving, nessa ordem.
+
+        `radii`: chaves dos raios a recalcular (padrão: todos). Sem "n", só a região que a edição
+        pode alterar é recalculada (exato; ver domain/scope.py) e o resto fica com a base.
+        """
         if not _NAME.match(name):
             raise ValueError("nome do cenário: minúsculas, números e hífen (ex.: ponte-centro)")
         if not edits:
@@ -73,6 +80,9 @@ class RunScenario:
         stage = on_stage or (lambda _: None)
         started = time.perf_counter()
         cfg = self._config
+        keys = check_radii(radii or [r.key for r in cfg.radii], [r.key for r in cfg.radii])
+        selected = tuple(r for r in cfg.radii if r.key in keys)
+        local = is_local(keys)
         stage("loading")
         base = self._base.current()
         if base is None:
@@ -93,15 +103,35 @@ class RunScenario:
         base_ids = [link.link_id for link in base.links]
         report_ids = [rid for rid in base_ids if rid not in set(edited.removed)] + edited.added
 
-        distances = [r.distance_m(cfg.radius_n_m) for r in cfg.radii]
+        distances = [r.distance_m(cfg.radius_n_m) for r in selected]
+        region: Region | None = None
+        if local:
+            changed = [link.coords for link in base.links if link.link_id in set(edited.removed)]
+            changed += [
+                link.coords
+                for link in edited.links
+                if link.link_id in set(edited.added) or link.link_id in edited.origin
+            ]
+            link_report_ids = [edited.report_id(link.link_id) for link in edited.links]
+            region = affected_region(
+                edited.links, link_report_ids, pieces, changed, float(max(distances))
+            )
         stage("engine")
-        log.info("[3/4] análise angular da cidade inteira (%d retas)…", len(pieces))
+        log.info(
+            "[3/4] raios %s, %s (%d retas, %s origens)…",
+            ", ".join(keys),
+            "só a região afetada" if region else "cidade inteira",
+            len(pieces),
+            region.live_count if region else len(pieces),
+        )
         t_engine = time.perf_counter()
-        run = self._analyzer.analyze(pieces, distances)
+        run = self._analyzer.analyze(pieces, distances, live=region.live if region else None)
         engine_s = time.perf_counter() - t_engine
         log.info("[3/4] %s %s: ok em %.1fs", run.engine, run.engine_version, engine_s)
 
-        scenario = raw_link_measures(report_ids, pieces, report_of_piece, run, cfg)
+        scenario = raw_link_measures(report_ids, pieces, report_of_piece, run, cfg, radii=selected)
+        if region is not None:
+            _keep_base_outside(scenario, report_ids, region.output, base)
 
         stage("comparing")
         log.info("[4/4] comparação com a base (cortes de classe da base)")
@@ -130,6 +160,10 @@ class RunScenario:
             "added": edited.added,
             "snaps_m": edited.snaps_m,
             "pieces": len(pieces),
+            "radii": list(keys),
+            "scope": "regiao" if region else "cidade",
+            "region_links": len(region.output) if region else None,
+            "region_live_pieces": region.live_count if region else None,
             "engine_seconds": round(engine_s, 1),
             "created_at": self._clock.now().isoformat(),
             "summary_result_zone": summary,
@@ -149,6 +183,22 @@ class RunScenario:
             "cenário %s concluído em %.1fs → %s", name, time.perf_counter() - started, location
         )
         return result, location
+
+
+def _keep_base_outside(
+    scenario: dict[str, FloatArray],
+    report_ids: Sequence[str],
+    output: frozenset[str],
+    base: BaseAnalysis,
+) -> None:
+    """Fora da região afetada nada muda: o trecho fica com o valor publicado (exato)."""
+    base_index = {link.link_id: i for i, link in enumerate(base.links)}
+    for key, values in scenario.items():
+        base_values = np.asarray(base.values[key], dtype=np.float64)
+        for i, rid in enumerate(report_ids):
+            j = base_index.get(rid)
+            if rid not in output and j is not None:
+                values[i] = base_values[j]
 
 
 def _compare(

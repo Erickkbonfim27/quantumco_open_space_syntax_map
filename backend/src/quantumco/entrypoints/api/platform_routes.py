@@ -114,6 +114,11 @@ class EditsBody(BaseModel):
     edits: list[EditBody] = Field(max_length=200)
 
 
+class RunBody(BaseModel):
+    # alcance: "400", "800", "1200", "2000" e/ou "n"; sem corpo = raios locais (bairro)
+    radii: list[str] | None = Field(default=None, max_length=5)
+
+
 class StatsBody(BaseModel):
     coordinates: Coordinates
 
@@ -191,6 +196,7 @@ def _run_json(view: RunView) -> dict[str, Any]:
         "stages": run.stages,
         "edits": len(run.edits),
         "edit_list": [e.to_json() for e in run.edits],  # a tela compara com as edições atuais
+        "radii": list(run.radii),
         "created_at": _iso(run.created_at),
         "started_at": _iso(run.started_at),
         "finished_at": _iso(run.finished_at),
@@ -494,9 +500,14 @@ def _workspace_routes(
         return _workspace_json(guard(apply), full=True)
 
     @router.post("/workspaces/{workspace_id}/runs", status_code=202, tags=["cenários do usuário"])
-    def request_run(workspace_id: UUID, user: CurrentUser) -> dict[str, Any]:
+    def request_run(
+        workspace_id: UUID, user: CurrentUser, body: RunBody | None = None
+    ) -> dict[str, Any]:
         unlimited = bool(owner) and str(user.email) == owner
-        view = guard(lambda: runs.request(user.user_id, workspace_id, unlimited=unlimited))
+        radii = body.radii if body else None
+        view = guard(
+            lambda: runs.request(user.user_id, workspace_id, unlimited=unlimited, radii=radii)
+        )
         return _run_json(view)
 
     # antes de /runs/{run_id}: "latest" não é UUID

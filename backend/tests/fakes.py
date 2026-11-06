@@ -255,8 +255,8 @@ class RunStore:
         queued = [r.run_id for r in self.items.values() if r.status == RunStatus.QUEUED]
         return queued.index(run.run_id) + 1
 
-    def expected_engine_seconds(self) -> float | None:
-        return 30.0
+    def expected_engine_seconds(self, radii: Sequence[str]) -> float | None:
+        return 600.0 if "n" in radii else 30.0
 
     def queued_ids(self) -> list[UUID]:
         return [r.run_id for r in self.items.values() if r.status == RunStatus.QUEUED]
@@ -285,12 +285,18 @@ class Engine:
     def __init__(self, reject: str | None = None) -> None:
         self.reject = reject
         self.calls: list[tuple[str, int]] = []
+        self.radii: list[tuple[str, ...]] = []
         self.forgotten: list[str] = []
 
     def run(
-        self, name: str, edits: Sequence[NetworkEdit], on_stage: Callable[[str], None]
+        self,
+        name: str,
+        edits: Sequence[NetworkEdit],
+        on_stage: Callable[[str], None],
+        radii: Sequence[str] = (),
     ) -> Mapping[str, Any]:
         self.calls.append((name, len(edits)))
+        self.radii.append(tuple(radii))
         for stage in ("loading", "editing", "engine", "comparing"):
             on_stage(stage)
         if self.reject:

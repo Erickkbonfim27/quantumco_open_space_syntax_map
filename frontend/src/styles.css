@@ -346,6 +346,15 @@ strong {
   grid-template-columns: 1fr 1fr 1fr;
 }
 
+.segmented-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.segmented-4 button {
+  font-size: 12px !important;
+  padding: 0 2px;
+}
+
 .segmented-5 {
   grid-template-columns: repeat(5, 1fr);
 }

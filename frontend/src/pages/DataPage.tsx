@@ -774,7 +774,7 @@ const GROUPS: Group[] = [
     id: "cenarios",
     title: "Cenários “e se…”",
     intro:
-      "Num cenário você edita a rede e recalcula a cidade inteira (todos os raios, inclusive n). O resultado é uma mudança na configuração da malha, nunca uma previsão.",
+      "Num cenário você edita a rede e recalcula os raios que escolher. Sem o raio n, só a região que a edição pode alterar é recalculada, com resultado igual ao da cidade inteira; com o n, a cidade inteira. O resultado é uma mudança na configuração da malha, nunca uma previsão.",
     items: [
       {
         id: "edicoes",

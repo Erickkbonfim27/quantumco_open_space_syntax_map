@@ -259,6 +259,27 @@
   font-size: 12px;
 }
 
+/* alcance do cálculo: atalhos + raios marcados um a um */
+.run-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.run-radii {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.run-radius {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .run-stale {
   padding: 10px 12px;
   border: 1px solid rgba(var(--warn-rgb), 0.45);

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, ApiError } from "../../lib/api";
 import type { ScenarioRun } from "../../lib/platformTypes";
+import type { RadiusKey } from "../../lib/types";
 
 const active = (run: ScenarioRun | null) => run?.status === "queued" || run?.status === "running";
 
@@ -63,7 +64,8 @@ export function useScenarioRun(workspaceId: string) {
   );
 
   const request = useCallback(
-    () => call(() => api<ScenarioRun>(`workspaces/${workspaceId}/runs`, { method: "POST" })),
+    (radii: RadiusKey[]) =>
+      call(() => api<ScenarioRun>(`workspaces/${workspaceId}/runs`, { method: "POST", json: { radii } })),
     [call, workspaceId],
   );
   const cancel = useCallback(

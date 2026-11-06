@@ -51,10 +51,14 @@ class SyntaxScenarioEngine:
         self._forget = forget
 
     def run(
-        self, name: str, edits: Sequence[NetworkEdit], on_stage: Callable[[str], None]
+        self,
+        name: str,
+        edits: Sequence[NetworkEdit],
+        on_stage: Callable[[str], None],
+        radii: Sequence[str],
     ) -> Mapping[str, Any]:
         try:
-            result, _ = self._run(name, to_analysis_edits(edits), on_stage)
+            result, _ = self._run(name, to_analysis_edits(edits), on_stage, radii=list(radii))
         except InvalidEditError as error:
             raise EditRejectedError(_friendly(str(error))) from error
         manifest = result.manifest
@@ -68,6 +72,9 @@ class SyntaxScenarioEngine:
             "pieces": manifest["pieces"],
             "engine": f"{manifest['engine']} {manifest['engine_version']}",
             "engine_seconds": manifest["engine_seconds"],
+            "radii": manifest.get("radii"),
+            "scope": manifest.get("scope"),
+            "region_links": manifest.get("region_links"),
             "summary": manifest["summary_result_zone"],
             "preliminary": manifest["preliminary"],
         }

@@ -18,6 +18,31 @@ from quantumco.scenarios.domain.network_edits import NetworkEdit
 # Etapas na ordem em que acontecem (a tela traduz). "queued" é a espera na fila.
 STAGES = ("queued", "loading", "editing", "engine", "comparing", "saving")
 
+# Alcance do cálculo (raios da metodologia v1). Sem "n", só a região afetada é recalculada —
+# exato, e bem mais rápido; com "n", a cidade inteira.
+RADIUS_KEYS = ("400", "800", "1200", "2000", "n")
+PRESETS: dict[str, tuple[str, ...]] = {
+    "caminhada": ("400", "800"),
+    "bairro": ("400", "800", "1200", "2000"),
+    "cidade": RADIUS_KEYS,
+}
+DEFAULT_RADII = PRESETS["bairro"]
+
+
+def check_radii(keys: object) -> tuple[str, ...]:
+    """Lista de raios do pedido → na ordem da metodologia (recusa vazio e desconhecido)."""
+    if keys is None:
+        return DEFAULT_RADII
+    if not isinstance(keys, list | tuple) or not all(isinstance(k, str) for k in keys):
+        raise RunRefusedError("Raios inválidos.")
+    unknown = sorted(set(keys) - set(RADIUS_KEYS))
+    if unknown:
+        raise RunRefusedError(f"Raio desconhecido: {', '.join(unknown)}.")
+    chosen = tuple(k for k in RADIUS_KEYS if k in set(keys))
+    if not chosen:
+        raise RunRefusedError("Escolha pelo menos um raio para calcular.")
+    return chosen
+
 
 class RunStatus(StrEnum):
     QUEUED = "queued"
@@ -53,14 +78,25 @@ class ScenarioRun:
     worker: str | None = None
     error: str | None = None
     result: Mapping[str, Any] | None = None
+    radii: tuple[str, ...] = RADIUS_KEYS  # pedidos antigos: cidade inteira
 
     @classmethod
     def request(
-        cls, *, workspace_id: UUID, owner_id: UUID, edits: tuple[NetworkEdit, ...], now: datetime
+        cls,
+        *,
+        workspace_id: UUID,
+        owner_id: UUID,
+        edits: tuple[NetworkEdit, ...],
+        now: datetime,
+        radii: tuple[str, ...] = DEFAULT_RADII,
     ) -> ScenarioRun:
-        run = cls(uuid4(), workspace_id, owner_id, edits, now)
+        run = cls(uuid4(), workspace_id, owner_id, edits, now, radii=check_radii(radii))
         run.stages.append({"stage": "queued", "at": now.isoformat(), "seconds": None})
         return run
+
+    @property
+    def whole_city(self) -> bool:
+        return "n" in self.radii
 
     @property
     def active(self) -> bool:
