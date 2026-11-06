@@ -3,13 +3,16 @@ import { Link, useNavigate } from "react-router";
 
 import { QuantumcoIcon } from "../brand/QuantumcoIcon";
 import { Footer } from "../components/Footer";
-import { LayerToggles, MapTabs, MeasureSwitch, OPEN_LAYERS, RadiusSection } from "../features/map/MapPanels";
+import { UserMenu } from "../components/UserMenu";
+import { BasemapPicker, LayerToggles, MapTabs, MeasureSwitch, OPEN_LAYERS, RadiusSection } from "../features/map/MapPanels";
 import { DEFAULT_FLAGS, type MapFlags, MapView, type MapViewHandle, type Selection } from "../features/map/MapView";
 import { ScenarioPanel } from "../features/map/ScenarioPanel";
 import { SelectionPanel } from "../features/map/SelectionPanel";
 import { RADII } from "../features/map/syntaxPalette";
+import { useBasemap } from "../features/map/useBasemap";
 import { ReleaseInfo } from "../features/release/ReleaseInfo";
 import { useSnapshotData } from "../features/release/useSnapshotData";
+import { type AddressHit, pinFor, SearchBox } from "../features/search/AddressSearch";
 import { LoadingScreen } from "../features/workspace/LoadingScreen";
 import { useSession } from "../lib/session";
 import type { Measure, RadiusKey } from "../lib/types";
@@ -35,6 +38,9 @@ export function PublicMap() {
   const [cursor, setCursor] = useState("—");
   const [overlayError, setOverlayError] = useState<string | null>(null);
   const [flags, setFlags] = useState<MapFlags>(DEFAULT_FLAGS);
+  const [basemap, setBasemap] = useBasemap();
+  const [pin, setPin] = useState<AddressHit | null>(null);
+  const pinOnMap = useMemo(() => pinFor(pin), [pin]);
 
   const data = state.status === "ready" ? state.data : null;
 
@@ -86,21 +92,9 @@ export function PublicMap() {
         </Link>
         <MapTabs active="mapa" polygonsTo={polygonsTo} />
         <span className="spacer" />
+        <SearchBox className="only-desktop" mode="endereco" onAddress={setPin} />
         <MeasureSwitch measure={measure} onMeasure={setMeasure} className="only-desktop" />
-        {user ? (
-          <Link to="/painel" className="avatar" title={`${user.name} · seus cenários`}>
-            {user.initials}
-          </Link>
-        ) : (
-          <div className="ws-auth">
-            <Link to="/entrar" className="pill pill-outline pill-sm">
-              Entrar
-            </Link>
-            <Link to="/criar-conta" className="pill pill-green pill-sm only-desktop">
-              Criar conta
-            </Link>
-          </div>
-        )}
+        <UserMenu compact />
       </header>
 
       <nav className="ws-rail" aria-label="Ferramentas do mapa">
@@ -159,6 +153,7 @@ export function PublicMap() {
           <SelectionPanel selection={selection} measure={measure} radius={radius} onClose={() => setSelection(null)} />
         </div>
 
+        <BasemapPicker basemap={basemap} onBasemap={setBasemap} />
         <LayerToggles flags={flags} onToggle={toggle} error={overlayError} />
 
         <div className="ws-embed">
@@ -176,6 +171,8 @@ export function PublicMap() {
           flags={flags}
           selectedId={selection?.properties.link_id ?? null}
           onSelect={setSelection}
+          basemap={basemap}
+          pin={pinOnMap}
           onCursor={([lng, lat], zoom) => setCursor(`${fmt(lat, 5)}, ${fmt(lng, 5)} · zoom ${fmt(zoom, 1)}`)}
           onOverlayError={(o) => setOverlayError(OPEN_LAYERS.find(([k]) => k === o)?.[1] ?? o)}
         />
@@ -214,7 +211,7 @@ export function PublicMap() {
         <span>{cursor}</span>
         <span>{selection ? `TRECHO #${selection.properties.link_id}` : "SELECIONAR"}</span>
         <span className="spacer" />
-        <span>© OpenStreetMap · OpenFreeMap · Desenvolvido por Erick K. Bonfim</span>
+        <span>© OpenStreetMap · Desenvolvido por Erick K. Bonfim</span>
       </footer>
     </div>
   );

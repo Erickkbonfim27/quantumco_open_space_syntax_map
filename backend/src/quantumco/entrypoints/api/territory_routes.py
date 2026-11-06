@@ -2,12 +2,17 @@
 
 # sem `from __future__ import annotations`: o FastAPI resolve os tipos do corpo em tempo de execução
 
+from collections.abc import Callable
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
-from quantumco.territory.application.queries import GetPolygonProfile, UnknownLayerError
+from quantumco.territory.application.queries import (
+    GetPolygonProfile,
+    SearchAddresses,
+    UnknownLayerError,
+)
 
 Coordinates = Annotated[list[tuple[float, float]], Field(min_length=3, max_length=500)]
 
@@ -16,8 +21,31 @@ class ProfileBody(BaseModel):
     coordinates: Coordinates
 
 
-def territory_router(profile: GetPolygonProfile) -> APIRouter:
+def territory_router(
+    profile: GetPolygonProfile, addresses: Callable[[], SearchAddresses]
+) -> APIRouter:
     router = APIRouter(tags=["camadas territoriais"])
+
+    @router.get("/territory/addresses")
+    def search_addresses(
+        response: Response, q: Annotated[str, Query(max_length=120)] = ""
+    ) -> list[dict[str, Any]]:
+        """Busca de endereços em Brusque (CNEFE 2022): "rua hercilio luz 120", "av beira rio"."""
+        response.headers["Cache-Control"] = "public, max-age=300"
+        return [
+            {
+                "label": hit.label,
+                "street": hit.street,
+                "number": hit.number,
+                "locality": hit.locality,
+                "cep": hit.cep,
+                "lon": round(hit.lon, 6),
+                "lat": round(hit.lat, 6),
+                "units": hit.units,
+                "exact": hit.exact,
+            }
+            for hit in addresses()(q)
+        ]
 
     @router.get("/territory/layers")
     def layers() -> list[dict[str, Any]]:

@@ -23,7 +23,11 @@ Fontes da view de polígonos: [`docs/data-sources.md`](docs/data-sources.md).
 | `/map` | mapa sintático público (`/map?cenario=nome` mostra um cenário "e se…") |
 | `/entrar`, `/criar-conta` | login e cadastro |
 | `/painel` | cenários do usuário |
-| `/painel/cenario/:id` | mapa do cenário com polígonos e camadas |
+| `/painel/cenario/:id` | mapa do cenário: polígonos, camadas e edição da rede ("e se…") com cálculo na fila |
+| `/dados` | fontes de dados e indicadores (abas) |
+| `/metodologia` | metodologia |
+| `/perfil` | foto, dados, e-mail, senha (por link no e-mail) e preferências |
+| `/confirmar-email`, `/redefinir-senha`, `/esqueci-senha` | páginas abertas pelos links dos e-mails |
 
 ## Rodar localmente
 
@@ -40,7 +44,10 @@ uv run quantumco territory import       # ~1 min: camadas do IBGE, SGB e CNES (p
 # 2. API  →  http://localhost:8000  (docs em /docs)
 uv run quantumco serve --reload
 
-# 3. frontend (outro terminal)  →  http://localhost:5173  (repassa /api para a 8000)
+# 3. worker da fila dos cenários (outro terminal; precisa do QC_REDIS_URL)
+uv run quantumco worker --workers 2
+
+# 4. frontend (outro terminal)  →  http://localhost:5173  (repassa /api para a 8000)
 cd frontend
 corepack pnpm install
 corepack pnpm dev
@@ -69,6 +76,7 @@ Dois serviços "App" apontando para este repositório no GitHub:
 | Serviço | Build path | Config | Porta | Observações |
 |---|---|---|---|---|
 | `backend` | `/backend` | `backend/nixpacks.toml` | 8000 | `QC_DATABASE_URL` apontando para o PostGIS (host interno); variáveis do `.env`; health em `/health` |
+| `worker` | `/backend` | `backend/nixpacks.toml` | — | mesma build e variáveis do `backend`, mais `QC_ROLE=worker` e `QC_WORKERS`; precisa do Redis (`QC_REDIS_URL`) |
 | `frontend` | `/frontend` | `frontend/nixpacks.toml` + `frontend/Caddyfile` | 80 | variável `API_UPSTREAM` = endereço interno da API (ex.: `projeto_api:8000`) |
 
 O Postgres precisa da imagem `postgis/postgis:18-3.6`. Depois do primeiro deploy da API, no

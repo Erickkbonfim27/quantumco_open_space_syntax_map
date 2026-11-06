@@ -5,6 +5,7 @@ Em produção: `uvicorn quantumco.entrypoints.api.app:create_app --factory`.
 
 from __future__ import annotations
 
+import functools
 import logging
 from typing import Any
 
@@ -13,28 +14,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
-from quantumco.bootstrap.platform import build_platform
+from quantumco.bootstrap.platform import Platform, build_platform
 from quantumco.bootstrap.road_network import current_network_query
 from quantumco.bootstrap.settings import Settings, load_env_file
 from quantumco.bootstrap.syntax_analysis import scenario_query, syntax_map_query
-from quantumco.bootstrap.territory import territory_profile_query
+from quantumco.bootstrap.territory import address_search_query, territory_profile_query
 from quantumco.entrypoints.api.platform_routes import platform_router
 from quantumco.entrypoints.api.territory_routes import territory_router
-from quantumco.identity.application.auth import Authentication
 from quantumco.road_network.application.queries import (
     GetCurrentNetwork,
     NoSnapshotError,
     PublishedNetwork,
 )
-from quantumco.scenarios.application.workspaces import Workspaces
 from quantumco.syntax_analysis.application.queries import (
-    GetPolygonStats,
     GetScenario,
     GetSyntaxMap,
     NoAnalysisError,
     NoScenarioError,
 )
-from quantumco.territory.application.queries import GetPolygonProfile
+from quantumco.territory.application.queries import GetPolygonProfile, SearchAddresses
 
 log = logging.getLogger(__name__)
 
@@ -48,8 +46,9 @@ def create_app(
     network_query: GetCurrentNetwork | None = None,
     syntax_query: GetSyntaxMap | None = None,
     scenarios: GetScenario | None = None,
-    platform: tuple[Authentication, Workspaces, GetPolygonStats] | None = None,
+    platform: Platform | None = None,
     territory: GetPolygonProfile | None = None,
+    addresses: SearchAddresses | None = None,
 ) -> FastAPI:
     if settings is None:
         load_env_file()
@@ -70,7 +69,7 @@ def create_app(
         app.add_middleware(
             CORSMiddleware,
             allow_origins=list(settings.cors_origins),
-            allow_methods=["GET", "POST", "PATCH", "DELETE"],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
             allow_headers=["*"],
             allow_credentials=True,
         )
@@ -101,34 +100,55 @@ def create_app(
     app.include_router(
         _syntax_router(syntax_query or syntax_map_query(settings)), prefix="/api/v1/syntax"
     )
+    scenario_reader = scenarios or scenario_query(settings)
+    app.include_router(_scenario_router(scenario_reader), prefix="/api/v1/scenarios")
     app.include_router(
-        _scenario_router(scenarios or scenario_query(settings)), prefix="/api/v1/scenarios"
-    )
-    auth, workspaces, polygon_stats = platform or build_platform(settings)
-    app.include_router(
-        platform_router(auth, workspaces, polygon_stats, secure=settings.cookie_secure),
+        platform_router(
+            platform or build_platform(settings),
+            scenario_reader,
+            secure=settings.cookie_secure,
+            owner_email=settings.owner_email,
+        ),
         prefix="/api/v1",
     )
+    # a busca de endereços só abre a conexão quando é usada (testes não precisam de banco)
+    search = (
+        (lambda: addresses)
+        if addresses
+        else functools.cache(lambda: address_search_query(settings))
+    )
     app.include_router(
-        territory_router(territory or territory_profile_query(settings)), prefix="/api/v1"
+        territory_router(territory or territory_profile_query(settings), search),
+        prefix="/api/v1",
     )
     return app
+
+
+# Resultados de cenários de usuário ("ws-<id>") são privados: saem só por /workspaces/{id}/result.
+PRIVATE_PREFIX = "ws-"
 
 
 def _scenario_router(query: GetScenario) -> APIRouter:
     router = APIRouter(tags=["cenários"])
 
+    def public(name: str) -> str:
+        if name.startswith(PRIVATE_PREFIX):
+            raise NoScenarioError(f"cenário {name!r} não existe")
+        return name
+
     @router.get("")
     def list_scenarios() -> list[dict[str, Any]]:
-        return [dict(item) for item in query.list()]
+        return [
+            dict(item) for item in query.list() if not str(item["name"]).startswith(PRIVATE_PREFIX)
+        ]
 
     @router.get("/{name}/manifest")
     def scenario_manifest(name: str) -> dict[str, Any]:
-        return dict(query(name).manifest)
+        return dict(query(public(name)).manifest)
 
     @router.get("/{name}/links", response_class=Response)
     def scenario_links(name: str) -> Response:
-        return Response(content=query(name).links_geojson, media_type=GEOJSON)
+        return Response(content=query(public(name)).links_geojson, media_type=GEOJSON)
 
     return router
 

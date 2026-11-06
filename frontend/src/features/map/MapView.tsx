@@ -7,6 +7,7 @@ import {
   type GeoJSONSource,
   Map as MapLibreMap,
   type MapMouseEvent,
+  Marker,
   Popup,
   ScaleControl,
   setWorkerUrl,
@@ -17,9 +18,10 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { config } from "../../config";
 import { api } from "../../lib/api";
 import { boundsOf } from "../../lib/geo";
-import type { PolygonCollection } from "../../lib/platformTypes";
+import type { NetworkEdit, PolygonCollection } from "../../lib/platformTypes";
+import { useTheme } from "../../lib/theme";
 import type { LinkProperties, Measure, RadiusKey, SnapshotData } from "../../lib/types";
-import { darkBasemapStyle, LABEL_LAYER } from "./basemapStyle";
+import { applyBasemap, type BasemapId, basemapStyle, LABEL_LAYER, type Tone, toneOf } from "./basemapStyle";
 import { lineColor, lineOpacity, lineWidth } from "./highwayGroups";
 import {
   deltaColor,
@@ -41,6 +43,23 @@ const BUFFER_GRAY = "#4A5155";
 const GRID = 36;
 /** Distância (px) do primeiro vértice que fecha o polígono. */
 const CLOSE_PX = 12;
+/** Encaixe da via desenhada na rede (px na tela): segmento e, com prioridade, vértice. */
+const SNAP_PX = 14;
+const SNAP_VERTEX_PX = 9;
+
+/** Cores das edições da rede (fora da escala sintática). */
+export const EDIT_COLORS = {
+  remove: "#FF5A5F",
+  close: "#FFA53B",
+  add: "#2BD46B",
+  reroute: "#2BD46B",
+} as const;
+
+/** Cores "de tinta" por tom do fundo (limite, seleção, polígonos, rótulos). */
+const INK: Record<Tone, { ink: string; halo: string; outline: string; poly: string; glow: number }> = {
+  dark: { ink: "#F4F6F5", halo: "rgba(10,13,14,.92)", outline: "rgba(244,246,245,.5)", poly: "rgba(244,246,245,.7)", glow: 0.18 },
+  light: { ink: "#0F1213", halo: "rgba(255,255,255,.94)", outline: "rgba(15,18,19,.55)", poly: "rgba(15,18,19,.7)", glow: 0.14 },
+};
 
 // O MapLibre 6 resolve o worker por uma URL dinâmica que o Vite não enxerga; registramos o
 // arquivo explicitamente (ele é autocontido, sem imports).
@@ -109,7 +128,11 @@ export interface MapViewHandle {
   zoomIn: () => void;
   zoomOut: () => void;
   fitAll: () => void;
+  /** enquadra uma linha (ex.: uma edição da lista) */
+  focus: (coords: Position[]) => void;
 }
+
+export type MapTool = "select" | "draw" | "line" | "pick";
 
 interface MapViewProps {
   data: SnapshotData;
@@ -118,13 +141,23 @@ interface MapViewProps {
   flags: MapFlags;
   selectedId: string | null;
   onSelect: (selection: Selection | null) => void;
+  basemap?: BasemapId;
+  /** cenário calculado: valores (escala sintática) ou diferença; padrão: diferença */
+  symbology?: "syntax" | "delta";
+  // edições da rede (cenário "e se…")
+  edits?: NetworkEdit[];
+  showNewLines?: boolean;
+  onPickLink?: (link: LinkProperties) => void;
+  onLineComplete?: (coords: Position[]) => void;
+  /** endereço encontrado na busca: pin + enquadramento */
+  pin?: { lngLat: [number, number]; label: string } | null;
   onCursor?: (lngLat: [number, number], zoom: number) => void;
   onOverlayError?: (overlay: Overlay) => void;
   // polígonos (cenário do usuário)
   polygons?: PolygonCollection;
   selectedPolygonId?: string | null;
   onSelectPolygon?: (id: string | null) => void;
-  tool?: "select" | "draw";
+  tool?: MapTool;
   rightInset?: number; // painel aberto à direita (enquadramento do polígono)
   onDrawComplete?: (ring: Position[]) => void;
   onDrawCancel?: () => void;
@@ -149,15 +182,53 @@ function popupHtml(overlay: Overlay, props: Record<string, unknown>): string {
 
 const NO_LINK: FilterSpecification = ["==", ["get", "link_id"], ""];
 
+/** Ponto mais próximo de p no segmento ab (coordenadas de tela). */
+function nearestOnSegment(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = dx * dx + dy * dy;
+  const t = len === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len));
+  return { x: a.x + t * dx, y: a.y + t * dy };
+}
+
+function lineParts(geometry: GeoJSON.Geometry): Position[][] {
+  if (geometry.type === "LineString") return [geometry.coordinates];
+  if (geometry.type === "MultiLineString") return geometry.coordinates;
+  return [];
+}
+
+function editLines(edits: NetworkEdit[] | undefined): FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: (edits ?? [])
+      .map((e, index) => ({ e, index }))
+      .filter(({ e }) => e.coords && e.coords.length >= 2)
+      .map(({ e, index }) => ({
+        type: "Feature",
+        properties: { kind: e.type, index },
+        geometry: { type: "LineString", coordinates: e.coords as Position[] },
+      })),
+  };
+}
+
+const idsOf = (edits: NetworkEdit[] | undefined, ...types: NetworkEdit["type"][]) =>
+  (edits ?? []).filter((e) => types.includes(e.type) && e.link_id).map((e) => e.link_id as string);
+
 export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(props, handleRef) {
-  const { data, measure, radius, flags, selectedId } = props;
+  const { data, measure, radius, flags, selectedId, basemap = "auto", symbology = "delta" } = props;
   const { polygons, selectedPolygonId = null, tool = "select", rightInset = 0 } = props;
+  const { edits, showNewLines = true, pin = null } = props;
+  const { theme } = useTheme();
+  const tone = toneOf(basemap, theme);
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const live = useRef(props);
   const loaded = useRef(new Set<Overlay>());
   const draft = useRef<Position[]>([]);
+  const snapped = useRef<boolean[]>([]);
   const cursor = useRef<Position | null>(null);
+  const fitted = useRef(false);
+  const marker = useRef<Marker | null>(null);
 
   useEffect(() => {
     live.current = props;
@@ -176,15 +247,20 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
     zoomIn: () => map.current?.zoomIn(),
     zoomOut: () => map.current?.zoomOut(),
     fitAll,
+    focus: (coords: Position[]) => {
+      const bounds = boundsOf([{ type: "LineString", coordinates: coords }]);
+      if (bounds) map.current?.fitBounds(bounds, { padding: 120, maxZoom: 17, duration: 600 });
+    },
   }));
 
   const renderDraft = () => {
     const source = map.current?.getSource("draft") as GeoJSONSource | undefined;
     if (!source) return;
     const pts = draft.current;
+    const line = live.current.tool === "line";
     const features: Feature[] = pts.map((p, i) => ({
       type: "Feature",
-      properties: { first: i === 0 },
+      properties: { first: !line && i === 0, snapped: line ? Boolean(snapped.current[i]) : null },
       geometry: { type: "Point", coordinates: p },
     }));
     const path = cursor.current ? [...pts, cursor.current] : pts;
@@ -192,21 +268,68 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       features.push({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: path } as LineString });
     }
     const start = path[0];
-    if (path.length >= 3 && start) {
+    if (!line && path.length >= 3 && start) {
       features.push({ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [[...path, start]] } as Polygon });
     }
     source.setData({ type: "FeatureCollection", features });
   };
 
-  const completeDraft = () => {
-    const pts = draft.current;
-    const start = pts[0];
-    if (pts.length < 3 || !start) return;
+  const clearDraft = () => {
     draft.current = [];
+    snapped.current = [];
     cursor.current = null;
     renderDraft();
     live.current.onDraftChange?.(0);
+  };
+
+  const completeDraft = () => {
+    const pts = draft.current;
+    const start = pts[0];
+    if (live.current.tool === "line") {
+      if (pts.length < 2) return;
+      clearDraft();
+      live.current.onLineComplete?.(pts);
+      return;
+    }
+    if (pts.length < 3 || !start) return;
+    clearDraft();
     live.current.onDrawComplete?.([...pts, start]);
+  };
+
+  /** Encaixa um clique na rede (ou numa via nova já desenhada), em pixels de tela. */
+  const snapToNetwork = (instance: MapLibreMap, x: number, y: number): { at: Position; snapped: boolean } => {
+    const layers = ["links-hit", "edit-new"].filter((id) => instance.getLayer(id));
+    const hits = instance.queryRenderedFeatures(
+      [
+        [x - SNAP_PX, y - SNAP_PX],
+        [x + SNAP_PX, y + SNAP_PX],
+      ],
+      { layers },
+    );
+    const p = { x, y };
+    let best: { x: number; y: number } | null = null;
+    let bestD = Infinity;
+    let vertex: { x: number; y: number } | null = null;
+    let vertexD = Infinity;
+    for (const hit of hits) {
+      for (const part of lineParts(hit.geometry)) {
+        const screen = part.map((c) => instance.project(c as [number, number]));
+        screen.forEach((v, i) => {
+          const d = Math.hypot(v.x - x, v.y - y);
+          // pontas de trecho (cruzamentos) têm prioridade sobre o meio da linha
+          const end = i === 0 || i === screen.length - 1;
+          if (end && d < vertexD) [vertex, vertexD] = [v, d];
+          const next = screen[i + 1];
+          if (!next) return;
+          const q = nearestOnSegment(p, v, next);
+          const dq = Math.hypot(q.x - x, q.y - y);
+          if (dq < bestD) [best, bestD] = [q, dq];
+        });
+      }
+    }
+    const chosen = vertex && vertexD <= SNAP_VERTEX_PX ? vertex : best && bestD <= SNAP_PX ? best : null;
+    if (!chosen) return { at: instance.unproject([x, y]).toArray(), snapped: false };
+    return { at: instance.unproject([(chosen as { x: number }).x, (chosen as { y: number }).y]).toArray(), snapped: true };
   };
 
   // cria o mapa uma vez
@@ -214,7 +337,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
     if (!container.current) return;
     const instance = new MapLibreMap({
       container: container.current,
-      style: config.basemapStyleUrl ?? darkBasemapStyle,
+      style: config.basemapStyleUrl ?? basemapStyle,
       center: [-48.917, -27.098],
       zoom: 12,
       attributionControl: { compact: false },
@@ -240,6 +363,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       for (const overlay of OVERLAYS) instance.addSource(overlay, { type: "geojson", data: empty() });
       instance.addSource("polys", { type: "geojson", data: empty(), promoteId: "id" });
       instance.addSource("draft", { type: "geojson", data: empty() });
+      instance.addSource("edits-lines", { type: "geojson", data: empty() });
       // duas fontes do mesmo DEM: o MapLibre recomenda separar sombreamento e terreno 3D
       // Terreno 3D (z12) e sombreamento (z13) em fontes separadas, como o MapLibre recomenda.
       // Limitação conhecida: com o terreno ligado, o MapLibre projeta as linhas numa textura sobre
@@ -310,6 +434,33 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
         paint: { "line-color": "#F4F6F5", "line-opacity": 0.18, "line-width": lineWidth(9), "line-blur": 6 },
       });
       add({ id: "links-selected", type: "line", source: NETWORK, filter: NO_LINK, layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#F4F6F5", "line-width": lineWidth(3) } });
+      // edições da rede: vias removidas, interditadas e redesenhadas (sobre a rede) e vias novas
+      const editLine = (id: string, color: string, dash: number[], scale: number, opacity = 1) =>
+        add({
+          id,
+          type: "line",
+          source: NETWORK,
+          filter: NO_LINK,
+          layout: { "line-cap": "butt", "line-join": "round" },
+          paint: { "line-color": color, "line-width": lineWidth(scale), "line-dasharray": dash, "line-opacity": opacity },
+        });
+      editLine("edit-removed", EDIT_COLORS.remove, [1.2, 1], 2.2);
+      editLine("edit-closed", EDIT_COLORS.close, [2.2, 1.2], 2.2);
+      editLine("edit-rerouted", EDIT_COLORS.remove, [0.6, 1.6], 1.6, 0.75);
+      add({
+        id: "edit-new-glow",
+        type: "line",
+        source: "edits-lines",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": EDIT_COLORS.add, "line-opacity": 0.35, "line-width": ["interpolate", ["linear"], ["zoom"], 11, 5, 17, 14], "line-blur": 3 },
+      });
+      add({
+        id: "edit-new",
+        type: "line",
+        source: "edits-lines",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#F4F6F5", "line-width": ["interpolate", ["linear"], ["zoom"], 11, 1.8, 17, 5] },
+      });
       add({ id: "municipality-outline", type: "line", source: MUNICIPALITY, paint: { "line-color": "rgba(244,246,245,0.5)", "line-width": 1.2, "line-dasharray": [4, 3] } });
       // polígonos do cenário
       add({
@@ -382,7 +533,21 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
           type: "circle",
           source: "draft",
           filter: ["==", ["geometry-type"], "Point"],
-          paint: { "circle-radius": ["case", ["get", "first"], 6, 3.5], "circle-color": ["case", ["get", "first"], "#2BD46B", "#F4F6F5"] },
+          paint: {
+            "circle-radius": ["case", ["get", "first"], 6, ["==", ["get", "snapped"], true], 5, 3.5],
+            "circle-color": [
+              "case",
+              ["get", "first"],
+              "#2BD46B",
+              ["==", ["get", "snapped"], true],
+              "#2BD46B",
+              ["==", ["get", "snapped"], false],
+              "#FFA53B",
+              "#F4F6F5",
+            ],
+            "circle-stroke-color": "#07090A",
+            "circle-stroke-width": ["case", ["==", ["get", "snapped"], null], 0, 1.5],
+          },
         },
         false,
       );
@@ -390,14 +555,36 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
 
     instance.on("mousemove", (e: MapMouseEvent) => {
       live.current.onCursor?.([e.lngLat.lng, e.lngLat.lat], instance.getZoom());
-      if (live.current.tool === "draw" && draft.current.length) {
-        cursor.current = [e.lngLat.lng, e.lngLat.lat];
+      const drawing = live.current.tool === "draw" || live.current.tool === "line";
+      if (drawing && draft.current.length) {
+        cursor.current =
+          live.current.tool === "line" ? snapToNetwork(instance, e.point.x, e.point.y).at : [e.lngLat.lng, e.lngLat.lat];
         renderDraft();
       }
     });
 
     const popup = new Popup({ closeButton: false, className: "qc-popup", maxWidth: "260px" });
     instance.on("click", (event: MapMouseEvent) => {
+      // via nova: cada clique é um vértice, encaixado na rede; clicar no último ponto termina
+      if (live.current.tool === "line") {
+        const pts = draft.current;
+        const last = pts[pts.length - 1];
+        if (last && pts.length >= 2) {
+          const a = instance.project(last as [number, number]);
+          if (Math.hypot(a.x - event.point.x, a.y - event.point.y) < CLOSE_PX) return completeDraft();
+        }
+        const point = snapToNetwork(instance, event.point.x, event.point.y);
+        pts.push(point.at);
+        snapped.current.push(point.snapped);
+        live.current.onDraftChange?.(pts.length);
+        renderDraft();
+        return;
+      }
+      if (live.current.tool === "pick") {
+        const [hit] = instance.queryRenderedFeatures(event.point, { layers: ["links-hit"] });
+        if (hit) live.current.onPickLink?.(hit.properties as LinkProperties);
+        return;
+      }
       // desenhando: cada clique é um vértice; perto do primeiro, fecha
       if (live.current.tool === "draw") {
         const pts = draft.current;
@@ -432,31 +619,37 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
     });
 
     instance.on("dblclick", (e: MapMouseEvent) => {
-      if (live.current.tool !== "draw") return;
+      if (live.current.tool !== "draw" && live.current.tool !== "line") return;
       e.preventDefault();
       draft.current.pop(); // o duplo clique já adicionou um vértice extra
+      snapped.current.pop();
       completeDraft();
     });
 
     const onKey = (event: KeyboardEvent) => {
-      if (live.current.tool !== "draw") return;
+      const t = live.current.tool;
+      if (t !== "draw" && t !== "line" && t !== "pick") return;
       if (event.key === "Enter") completeDraft();
-      if (event.key === "Escape") {
-        draft.current = [];
-        cursor.current = null;
+      if (event.key === "Backspace" && draft.current.length && !(event.target instanceof HTMLInputElement)) {
+        draft.current.pop();
+        snapped.current.pop();
+        live.current.onDraftChange?.(draft.current.length);
         renderDraft();
-        live.current.onDraftChange?.(0);
+      }
+      if (event.key === "Escape") {
+        clearDraft();
         live.current.onDrawCancel?.();
       }
     };
     window.addEventListener("keydown", onKey);
 
+    const idleCursor = () => (live.current.tool === "draw" || live.current.tool === "line" ? "crosshair" : "");
     for (const id of ["links-hit", "saude", "escolas"]) {
       instance.on("mouseenter", id, () => {
-        if (live.current.tool !== "draw") instance.getCanvas().style.cursor = "pointer";
+        if (live.current.tool === "select" || live.current.tool === "pick") instance.getCanvas().style.cursor = "pointer";
       });
       instance.on("mouseleave", id, () => {
-        if (live.current.tool !== "draw") instance.getCanvas().style.cursor = "";
+        instance.getCanvas().style.cursor = idleCursor();
       });
     }
 
@@ -481,7 +674,9 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
     whenReady((m) => {
       (m.getSource(NETWORK) as GeoJSONSource).setData(data.network);
       (m.getSource(MUNICIPALITY) as GeoJSONSource).setData(data.municipality);
-      fitAll();
+      // enquadra só na primeira carga: trocar mapa atual ↔ cenário não mexe na vista
+      if (!fitted.current) fitAll();
+      fitted.current = true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fitAll depende só de `data`
   }, [data]);
@@ -492,12 +687,12 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       let color: ExpressionSpecification;
       let width: ExpressionSpecification;
       let sortKey: ExpressionSpecification | undefined;
-      if (data.scenario) {
+      if (data.scenario && symbology === "delta") {
         [color, width, sortKey] = [deltaColor(measure, radius), deltaWidth(measure, radius), deltaSortKey(measure, radius)];
-      } else if (data.analysis) {
+      } else if (data.analysis || data.scenario) {
         [color, width, sortKey] = [syntaxColor(measure, radius, BUFFER_GRAY), syntaxWidth(measure, radius), syntaxSortKey(measure, radius)];
       } else {
-        [color, width] = [lineColor(), lineWidth()];
+        [color, width] = [lineColor(tone), lineWidth()];
       }
       for (const id of ["links", "links-in"]) {
         m.setPaintProperty(id, "line-color", color);
@@ -507,7 +702,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       m.setPaintProperty("links-in", "line-width", ["*", 1.15, width] as ExpressionSpecification);
     });
      
-  }, [data.analysis, data.scenario, measure, radius]);
+  }, [data.analysis, data.scenario, measure, radius, symbology, tone]);
 
   // camadas ligadas/desligadas (as territoriais são baixadas na primeira vez que ligam)
   useEffect(() => {
@@ -549,17 +744,64 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
   // ferramenta (desenho muda cursor e desliga o zoom do duplo clique)
   useEffect(() => {
     whenReady((m) => {
-      m.getCanvas().style.cursor = tool === "draw" ? "crosshair" : "";
-      if (tool === "draw") m.doubleClickZoom.disable();
+      const drawing = tool === "draw" || tool === "line";
+      m.getCanvas().style.cursor = drawing ? "crosshair" : "";
+      if (drawing) m.doubleClickZoom.disable();
       else m.doubleClickZoom.enable();
-      if (tool !== "draw" && draft.current.length) {
-        draft.current = [];
-        cursor.current = null;
-        renderDraft();
-      }
+      if (draft.current.length) clearDraft(); // trocar de ferramenta descarta o rascunho
     });
-     
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- clearDraft só mexe em refs
   }, [tool]);
+
+  // fundo do mapa e cores "de tinta" conforme o tom (escuro/claro)
+  useEffect(() => {
+    if (container.current) container.current.dataset.tone = tone;
+    whenReady((m) => {
+      if (!config.basemapStyleUrl) applyBasemap(m, basemap, theme);
+      const ink = INK[tone];
+      m.setPaintProperty("municipality-outline", "line-color", ink.outline);
+      m.setPaintProperty("links-selected", "line-color", ink.ink);
+      m.setPaintProperty("links-selected-glow", "line-color", ink.ink);
+      m.setPaintProperty("links-selected-glow", "line-opacity", ink.glow);
+      m.setPaintProperty("municipality-fill", "fill-color", ink.ink);
+      m.setPaintProperty("polys-label", "text-color", ink.ink);
+      m.setPaintProperty("polys-label", "text-halo-color", ink.halo);
+      m.setPaintProperty("edit-new", "line-color", ink.ink);
+      m.setPaintProperty("polys-line", "line-color", [
+        "case",
+        ["boolean", ["feature-state", "selected"], false],
+        "#2BD46B",
+        ink.poly,
+      ] as ExpressionSpecification);
+    });
+  }, [basemap, theme, tone]);
+
+  // edições da rede
+  useEffect(() => {
+    whenReady((m) => {
+      const byIds = (ids: string[]): FilterSpecification =>
+        ids.length ? ["in", ["get", "link_id"], ["literal", ids]] : NO_LINK;
+      m.setFilter("edit-removed", byIds(idsOf(edits, "remove")));
+      m.setFilter("edit-closed", byIds(idsOf(edits, "close")));
+      m.setFilter("edit-rerouted", byIds(idsOf(edits, "reroute")));
+      (m.getSource("edits-lines") as GeoJSONSource).setData(showNewLines ? editLines(edits) : empty());
+    });
+  }, [edits, showNewLines, data]);
+
+  // pin do endereço buscado
+  useEffect(() => {
+    marker.current?.remove();
+    marker.current = null;
+    if (!pin) return;
+    whenReady((m) => {
+      const el = document.createElement("div");
+      el.className = "qc-pin";
+      el.innerHTML = '<span class="qc-pin-dot"></span><span class="qc-pin-label"></span>';
+      (el.querySelector(".qc-pin-label") as HTMLElement).textContent = pin.label;
+      marker.current = new Marker({ element: el, anchor: "bottom" }).setLngLat(pin.lngLat).addTo(m);
+      m.flyTo({ center: pin.lngLat, zoom: Math.max(m.getZoom(), 17), duration: 900 });
+    });
+  }, [pin]);
 
   // polígonos
   useEffect(() => {

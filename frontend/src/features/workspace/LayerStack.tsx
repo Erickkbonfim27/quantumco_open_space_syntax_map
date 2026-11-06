@@ -3,33 +3,52 @@ import { useEffect, useRef, useState } from "react";
 
 import type { PolygonProps, PolygonStats, TerritoryProfile } from "../../lib/platformTypes";
 import type { Measure, NetworkCollection, RadiusKey } from "../../lib/types";
+import { cssToken, useTheme } from "../../lib/theme";
 import { SYNTAX_PALETTE } from "../map/syntaxPalette";
 import { inRing } from "./geometry";
 
-/** De cima para baixo, como no design (N1 na base da pilha). */
+/** De cima para baixo, como no design (N1 na base da pilha). Acentos em tokens do tema. */
 const LAYERS = [
-  { key: "risco", level: "N6", name: "RISCO", accent: "#FF6B5E" },
-  { key: "equip", level: "N5", name: "EQUIPAMENTOS E USO", accent: "#2BD46B" },
-  { key: "entorno", level: "N4", name: "ENTORNO URBANO", accent: "#C9CFD1" },
-  { key: "pop", level: "N3", name: "POPULAÇÃO E RENDA", accent: "#F4F6F5" },
-  { key: "rede", level: "N2", name: "REDE VIÁRIA", accent: "#C9CFD1" },
-  { key: "base", level: "N1", name: "TERRITÓRIO", accent: "#3B8CFF" },
+  { key: "risco", level: "N6", name: "RISCO", accent: "var(--danger)" },
+  { key: "equip", level: "N5", name: "EQUIPAMENTOS E USO", accent: "var(--green-text)" },
+  { key: "entorno", level: "N4", name: "ENTORNO URBANO", accent: "var(--text-soft)" },
+  { key: "pop", level: "N3", name: "POPULAÇÃO E RENDA", accent: "var(--ink)" },
+  { key: "rede", level: "N2", name: "REDE VIÁRIA", accent: "var(--text-soft)" },
+  { key: "base", level: "N1", name: "TERRITÓRIO", accent: "var(--blue-text)" },
 ] as const;
 type LayerKey = (typeof LAYERS)[number]["key"];
 type Profile = TerritoryProfile | "erro" | undefined;
 
 // Cores das camadas territoriais: fora da paleta sintática, para não confundir com NAIN/NACH.
 // Inundação em azul (#3B8CFF), setor de risco em vermelho-coral (#FF6B5E).
-const POINT_STYLE: Record<string, { color: string; size: number; shape: "dot" | "square" | "ring" | "cross" }> = {
-  "cnefe:domicilio": { color: "rgba(244,246,245,.55)", size: 1.4, shape: "dot" },
-  "cnefe:domicilio_coletivo": { color: "rgba(244,246,245,.55)", size: 1.4, shape: "dot" },
-  "cnefe:outras_finalidades": { color: "rgba(155,163,166,.75)", size: 1.6, shape: "dot" },
-  "cnefe:ensino": { color: "#F4F6F5", size: 4, shape: "square" },
-  "cnefe:religioso": { color: "#9BA3A6", size: 3, shape: "ring" },
+// Tons neutros vêm da tinta do tema (claros no escuro, grafite no claro).
+interface Ink {
+  fg: (alpha: number) => string;
+  soft: (alpha: number) => string;
+  muted: (alpha: number) => string;
+}
+
+/** O <canvas> não enxerga variáveis CSS: lê os tokens do tema na hora de desenhar. */
+function readInk(): Ink {
+  const rgba = (rgb: string) => (alpha: number) => `rgba(${rgb},${alpha})`;
+  return {
+    fg: rgba(cssToken("--fg-rgb", "244, 246, 245")),
+    soft: rgba(cssToken("--soft-rgb", "201, 207, 209")),
+    muted: rgba(cssToken("--muted-rgb", "155, 163, 166")),
+  };
+}
+
+type PointStyle = { color: string; size: number; shape: "dot" | "square" | "ring" | "cross" };
+const pointStyles = (ink: Ink): Record<string, PointStyle> => ({
+  "cnefe:domicilio": { color: ink.fg(0.55), size: 1.4, shape: "dot" },
+  "cnefe:domicilio_coletivo": { color: ink.fg(0.55), size: 1.4, shape: "dot" },
+  "cnefe:outras_finalidades": { color: ink.muted(0.75), size: 1.6, shape: "dot" },
+  "cnefe:ensino": { color: ink.fg(1), size: 4, shape: "square" },
+  "cnefe:religioso": { color: ink.muted(1), size: 3, shape: "ring" },
   "cnefe:em_construcao": { color: "#3B8CFF", size: 3, shape: "cross" },
   "cnefe:saude": { color: "#2BD46B", size: 2.4, shape: "dot" },
-};
-const cnesStyle = { color: "#2BD46B", size: 2.4, shape: "dot" } as const;
+});
+const cnesStyle: PointStyle = { color: "#2BD46B", size: 2.4, shape: "dot" };
 
 const fmt = (v: number, d: number) =>
   v.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -44,7 +63,6 @@ interface LayerStackProps {
   measure: Measure;
   radius: RadiusKey;
   network: NetworkCollection;
-  onExport: () => void;
   onClose: () => void;
 }
 
@@ -62,6 +80,7 @@ function drawTile(
   measure: Measure,
   radius: RadiusKey,
   profile: Profile,
+  ink: Ink,
 ) {
   const g = canvas.getContext("2d");
   if (!g) return;
@@ -85,7 +104,7 @@ function drawTile(
     trace(ring);
     g.closePath();
   };
-  const outline = (color = "rgba(244,246,245,.5)") => {
+  const outline = (color = ink.fg(0.5)) => {
     path();
     g.strokeStyle = color;
     g.lineWidth = 1;
@@ -119,7 +138,7 @@ function drawTile(
     g.strokeStyle = "#3B8CFF";
     g.lineWidth = 1.5;
     g.stroke();
-    g.fillStyle = "#F4F6F5";
+    g.fillStyle = ink.fg(1);
     ring.forEach(([x = 0, y = 0]) => g.fillRect(X(x) - 2, Y(y) - 2, 4, 4));
     return;
   }
@@ -133,14 +152,14 @@ function drawTile(
   }
   if (layer === "entorno") {
     streets(
-      () => "rgba(201,207,209,.55)",
+      () => ink.soft(0.55),
       () => 1,
     );
     outline();
     return;
   }
   if (!data) {
-    outline("rgba(244,246,245,.25)");
+    outline(ink.fg(0.25));
     return;
   }
   if (layer === "risco") {
@@ -178,9 +197,10 @@ function drawTile(
     layer === "pop"
       ? kind.startsWith("cnefe:domicilio")
       : !kind.startsWith("cnefe:domicilio");
+  const styles = pointStyles(ink);
   for (const [lon, lat, kind] of data.features.points) {
     if (!wanted(kind)) continue;
-    const style = POINT_STYLE[kind] ?? (kind.startsWith("cnes:") ? cnesStyle : null);
+    const style = styles[kind] ?? (kind.startsWith("cnes:") ? cnesStyle : null);
     if (!style) continue;
     const [px, py] = [X(lon), Y(lat)];
     g.fillStyle = style.color;
@@ -236,7 +256,7 @@ function territoryCards(profile: Profile): Record<"risco" | "equip" | "entorno" 
         { w: floodAlta, c: "rgba(59,140,255,.9)" },
         { w: floodMedia, c: "rgba(59,140,255,.5)" },
         { w: floodBaixa, c: "rgba(59,140,255,.22)" },
-        { w: Math.max(0, 1 - floodAlta - floodMedia - floodBaixa), c: "rgba(244,246,245,.08)" },
+        { w: Math.max(0, 1 - floodAlta - floodMedia - floodBaixa), c: "rgba(var(--fg-rgb), 0.08)" },
       ],
       note: `Suscetibilidade alta a deslizamento: ${pct(slide)} da área.${
         Object.keys(r.processes_km2).length
@@ -289,7 +309,6 @@ export function LayerStack({
   measure,
   radius,
   network,
-  onExport,
   onClose,
 }: LayerStackProps) {
   const [open, setOpen] = useState(false);
@@ -302,12 +321,19 @@ export function LayerStack({
     return () => clearTimeout(t);
   }, []);
 
+  const { theme } = useTheme();
   useEffect(() => {
-    for (const layer of LAYERS) {
-      const canvas = tiles.current[layer.key];
-      if (canvas) drawTile(canvas, layer.key, polygon, network, measure, radius, profile);
-    }
-  }, [polygon, network, measure, radius, profile]);
+    // desenha no quadro seguinte: ao trocar o tema, o <html data-theme> só muda no efeito do
+    // ThemeProvider, que roda depois deste (a tinta lida agora seria a antiga)
+    const frame = requestAnimationFrame(() => {
+      const ink = readInk();
+      for (const layer of LAYERS) {
+        const canvas = tiles.current[layer.key];
+        if (canvas) drawTile(canvas, layer.key, polygon, network, measure, radius, profile, ink);
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [polygon, network, measure, radius, profile, theme]);
 
   const ring = polygon.geometry.coordinates[0] ?? [];
   let cx = 0;
@@ -371,9 +397,6 @@ export function LayerStack({
           {polygon.properties.code} · {fmt(cy, 4)}, {fmt(cx, 4)}
         </span>
         <span className="spacer" />
-        <button type="button" className="pill pill-outline pill-sm" onClick={onExport}>
-          Exportar GeoJSON
-        </button>
         <button type="button" className="icon-circle" onClick={onClose} aria-label="Fechar">
           ×
         </button>
@@ -394,7 +417,7 @@ export function LayerStack({
                   zIndex: 10 - j,
                   opacity: dim ? 0.3 : 1,
                   borderColor: on ? layer.accent : undefined,
-                  background: on ? "rgba(244,246,245,.07)" : undefined,
+                  background: on ? "rgba(var(--fg-rgb), 0.07)" : undefined,
                 }}
               >
                 <canvas
@@ -419,7 +442,7 @@ export function LayerStack({
                 onMouseLeave={() => setHover(null)}
               >
                 <div className="layer-card-head mono">
-                  <span style={{ color: on ? "#2BD46B" : layer.accent }}>{layer.level}</span>
+                  <span style={{ color: on ? "var(--green-text)" : layer.accent }}>{layer.level}</span>
                   <span className="muted-2">{layer.name}</span>
                 </div>
                 <div className="layer-metrics">

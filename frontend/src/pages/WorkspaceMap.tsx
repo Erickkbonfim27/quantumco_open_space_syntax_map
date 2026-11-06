@@ -4,29 +4,44 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { QuantumcoIcon } from "../brand/QuantumcoIcon";
 import { Footer } from "../components/Footer";
-import { LayerToggles, MapTabs, MeasureSwitch, OPEN_LAYERS, RadiusSection } from "../features/map/MapPanels";
-import { DEFAULT_FLAGS, type MapFlags, MapView, type MapViewHandle, type Selection } from "../features/map/MapView";
+import { UserMenu } from "../components/UserMenu";
+import { BasemapPicker, LayerToggles, MapTabs, MeasureSwitch, OPEN_LAYERS, RadiusSection } from "../features/map/MapPanels";
+import {
+  DEFAULT_FLAGS,
+  type MapFlags,
+  type MapTool,
+  MapView,
+  type MapViewHandle,
+  type Selection,
+} from "../features/map/MapView";
 import { SelectionPanel } from "../features/map/SelectionPanel";
 import { RADII, SYNTAX_PALETTE } from "../features/map/syntaxPalette";
+import { useBasemap } from "../features/map/useBasemap";
 import { ReleaseInfo } from "../features/release/ReleaseInfo";
+import { EDIT_LABEL, type EditTool, replaceReroute, toggleLinkEdit } from "../features/scenarios/edits";
+import { DeltaLegend, EditsSection, type ResultView, RunSection } from "../features/scenarios/NetworkPanel";
+import { useScenarioRun } from "../features/scenarios/useScenarioRun";
+import { type AddressHit, pinFor, SearchBox, type SearchMode } from "../features/search/AddressSearch";
 import { medianClass } from "../features/workspace/geometry";
 import { LayerStack } from "../features/workspace/LayerStack";
 import { LoadingScreen } from "../features/workspace/LoadingScreen";
 import { api, ApiError, apiCached } from "../lib/api";
 import type {
+  NetworkEdit,
   PolygonCollection,
   PolygonStats,
   TerritoryProfile,
   Workspace,
 } from "../lib/platformTypes";
-import { useSession } from "../lib/session";
 import type {
   AnalysisManifest,
+  LinkProperties,
   Manifest,
   Measure,
   MunicipalityCollection,
   NetworkCollection,
   RadiusKey,
+  ScenarioManifest,
   SnapshotData,
 } from "../lib/types";
 
@@ -38,7 +53,6 @@ const ICONS = {
   draw: "M12 3l8 6-3 10H7L4 9z",
   layers: "M12 3l9 5-9 5-9-5z M3 13l9 5 9-5",
   fit: "M4 9V4h5 M20 9V4h-5 M4 15v5h5 M20 15v5h-5",
-  export: "M12 4v11 M7 10l5 5 5-5 M5 20h14",
 } as const;
 
 const STEPS = [
@@ -48,19 +62,9 @@ const STEPS = [
   "CALCULANDO AS CAMADAS DOS POLÍGONOS",
 ];
 
-function download(name: string, data: unknown) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/geo+json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
 export function WorkspaceMap() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
-  const { user } = useSession();
   const mapRef = useRef<MapViewHandle>(null);
 
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -78,9 +82,46 @@ export function WorkspaceMap() {
   const [link, setLink] = useState<Selection | null>(null);
   const [overlayError, setOverlayError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [searchMode, setSearchMode] = useState<SearchMode>("endereco");
+  const [pin, setPin] = useState<AddressHit | null>(null);
   const [draftVertices, setDraftVertices] = useState(0);
   const [cursor, setCursor] = useState<string>("—");
   const [saving, setSaving] = useState(false);
+  // edição da rede ("e se…") e cálculo na fila
+  const [panel, setPanel] = useState<"poligonos" | "rede">("poligonos");
+  const [editTool, setEditTool] = useState<EditTool | null>(null);
+  const [rerouteTarget, setRerouteTarget] = useState<string | null>(null);
+  const [savingEdits, setSavingEdits] = useState(false);
+  const [view, setView] = useState<ResultView>("atual");
+  const [result, setResult] = useState<{ runId: string; manifest: ScenarioManifest; network: NetworkCollection } | null>(null);
+  const runState = useScenarioRun(id);
+  const [basemap, setBasemap] = useBasemap();
+  const editsRef = useRef<NetworkEdit[]>([]);
+  const finishedLive = runState.finishedLive;
+
+  useEffect(() => {
+    editsRef.current = workspace?.edits ?? [];
+  }, [workspace]);
+
+  // resultado do último cálculo concluído (rede com valores e deltas)
+  const doneRunId = runState.run?.status === "done" ? runState.run.id : null;
+  useEffect(() => {
+    if (!doneRunId || result?.runId === doneRunId) return;
+    let alive = true;
+    Promise.all([
+      api<ScenarioManifest>(`workspaces/${id}/result/manifest`),
+      api<NetworkCollection>(`workspaces/${id}/result/links`),
+    ])
+      .then(([manifest, network]) => {
+        if (!alive) return;
+        setResult({ runId: doneRunId, manifest, network });
+        if (finishedLive) setView("diferenca"); // acabou agora, com a pessoa olhando
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [doneRunId, id, result, finishedLive]);
 
   const loadStats = useCallback(async (features: Workspace["features"]) => {
     const entries = await Promise.all(
@@ -152,6 +193,14 @@ export function WorkspaceMap() {
     [workspace],
   );
 
+  // o que o mapa mostra: rede atual ou o resultado do cenário (valores ou diferença)
+  const showingResult = view !== "atual" && result !== null;
+  const mapData: SnapshotData | null = useMemo(
+    () => (data && showingResult && result ? { ...data, network: result.network, scenario: result.manifest } : data),
+    [data, showingResult, result],
+  );
+  const pinOnMap = useMemo(() => pinFor(pin), [pin]);
+
   const refresh = async () => {
     const ws = await api<Workspace>(`workspaces/${id}`);
     setWorkspace(ws);
@@ -187,24 +236,58 @@ export function WorkspaceMap() {
     void api(`workspaces/${id}`, { method: "PATCH", json: { measure: m } }).catch(() => undefined);
   };
 
-  const exportFeatures = (only?: string) => {
-    const features = polygons.features
-      .filter((f) => !only || f.properties.id === only)
-      .map((f) => {
-        const profile = profiles[f.properties.id];
-        const territory =
-          profile && profile !== "erro"
-            ? { ...profile, features: undefined } // sem a amostra de pontos (só para desenho)
-            : null;
-        return {
-          ...f,
-          properties: {
-            ...f.properties,
-            camadas: { ...(stats[f.properties.id] ?? {}), territorio: territory },
-          },
-        };
-      });
-    download("quantumco-poligonos.geojson", { type: "FeatureCollection", features });
+  /** Grava a lista de edições (otimista: a tela muda antes, e volta se a API recusar). */
+  const saveEdits = async (update: (edits: NetworkEdit[]) => NetworkEdit[]) => {
+    const before = editsRef.current;
+    const next = update(before);
+    editsRef.current = next;
+    setWorkspace((ws) => (ws ? { ...ws, edits: next, edits_count: next.length } : ws));
+    setSavingEdits(true);
+    setError("");
+    try {
+      const ws = await api<Workspace>(`workspaces/${id}/edits`, { method: "PUT", json: { edits: next } });
+      if (editsRef.current === next) setWorkspace(ws);
+    } catch (err) {
+      editsRef.current = before;
+      setWorkspace((ws) => (ws ? { ...ws, edits: before, edits_count: before.length } : ws));
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setSavingEdits(false);
+    }
+  };
+
+  const chooseEditTool = (next: EditTool | null) => {
+    setEditTool(next);
+    setRerouteTarget(null);
+    setTool("select");
+    if (next) {
+      setView("atual"); // edita-se sobre o mapa atual
+      setSelectedId(null);
+    }
+  };
+
+  const linkEdit = (type: "remove" | "close", props: LinkProperties) =>
+    void saveEdits((edits) => toggleLinkEdit(edits, type, props));
+
+  const onPickLink = (props: LinkProperties) => {
+    if (!editTool || props.new) return;
+    if (editTool === "remove" || editTool === "close") linkEdit(editTool, props);
+    if (editTool === "reroute") setRerouteTarget(props.link_id);
+  };
+
+  const onLineComplete = (coords: Position[]) => {
+    const line = coords.map(([x = 0, y = 0]) => [x, y] as [number, number]);
+    if (editTool === "add") void saveEdits((edits) => [...edits, { type: "add", coords: line }]);
+    if (editTool === "reroute" && rerouteTarget) {
+      const target = rerouteTarget;
+      void saveEdits((edits) => replaceReroute(edits, target, line));
+      setRerouteTarget(null);
+    }
+  };
+
+  const focusEdit = (edit: NetworkEdit) => {
+    const geometry = edit.coords ?? data?.network.features.find((f) => f.properties.link_id === edit.link_id)?.geometry.coordinates;
+    if (geometry) mapRef.current?.focus(geometry);
   };
 
   if (error && !workspace) {
@@ -215,7 +298,7 @@ export function WorkspaceMap() {
       </div>
     );
   }
-  if (!workspace || !data) {
+  if (!workspace || !data || !mapData) {
     return (
       <LoadingScreen
         name={workspace?.name ?? "Abrindo cenário"}
@@ -240,24 +323,55 @@ export function WorkspaceMap() {
   const histoMax = Math.max(1e-9, ...histo);
   const legendTitle = `${measure === "nain" ? "INTEGRAÇÃO (NAIN)" : "ESCOLHA (NACH)"} · R ${radiusLabel}`;
   const toggle = (key: keyof MapFlags) => setFlags((f) => ({ ...f, [key]: !f[key] }));
+  const editing = panel === "rede" && editTool !== null;
+  const mapTool: MapTool = editing
+    ? editTool === "add" || (editTool === "reroute" && rerouteTarget)
+      ? "line"
+      : "pick"
+    : tool;
+  const mapEdits = showingResult ? runState.run?.edit_list : workspace.edits;
+  const linkActions =
+    panel === "rede" && link && !showingResult && !link.properties.new ? (
+      <div className="edit-actions">
+        <button type="button" className="pill pill-outline pill-sm" onClick={() => linkEdit("remove", link.properties)}>
+          Remover
+        </button>
+        <button type="button" className="pill pill-outline pill-sm" onClick={() => linkEdit("close", link.properties)}>
+          Interditar
+        </button>
+        <button
+          type="button"
+          className="pill pill-outline pill-sm"
+          onClick={() => {
+            chooseEditTool("reroute");
+            setRerouteTarget(link.properties.link_id);
+          }}
+        >
+          Redesenhar
+        </button>
+      </div>
+    ) : null;
 
   const tools: { key: keyof typeof ICONS; title: string; on: boolean }[] = [
     { key: "select", title: "Selecionar", on: tool === "select" },
     { key: "draw", title: "Desenhar polígono", on: tool === "draw" },
     { key: "layers", title: "Malha sintática", on: flags.net },
     { key: "fit", title: "Enquadrar Brusque", on: false },
-    { key: "export", title: "Exportar todos (GeoJSON)", on: false },
   ];
 
   function handleTool(key: keyof typeof ICONS) {
-    if (key === "select") setTool("select");
+    if (key === "select") {
+      setTool("select");
+      setEditTool(null);
+    }
     if (key === "draw") {
       setSelectedId(null);
+      setPanel("poligonos");
+      setEditTool(null);
       setTool("draw");
     }
     if (key === "layers") toggle("net");
     if (key === "fit") mapRef.current?.fitAll();
-    if (key === "export") exportFeatures();
   }
 
   return (
@@ -271,17 +385,24 @@ export function WorkspaceMap() {
         </span>
         <MapTabs active="poligonos" polygonsTo={`/painel/cenario/${id}`} />
         <span className="spacer" />
-        <input
-          className="search search-sm only-desktop"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Buscar polígono"
-          aria-label="Buscar polígono"
+        <SearchBox
+          className="only-desktop"
+          modes={["endereco", "poligono"]}
+          mode={searchMode}
+          onMode={(m) => {
+            setSearchMode(m);
+            if (m === "endereco") setQuery("");
+            else setPin(null);
+          }}
+          polygonQuery={query}
+          onPolygonQuery={(text) => {
+            setQuery(text);
+            setPanel("poligonos");
+          }}
+          onAddress={setPin}
         />
         <MeasureSwitch measure={measure} onMeasure={changeMeasure} className="only-desktop" />
-        <span className="avatar" title={user?.name}>
-          {user?.initials}
-        </span>
+        <UserMenu compact />
       </header>
 
       <nav className="ws-rail" aria-label="Ferramentas do mapa">
@@ -306,6 +427,65 @@ export function WorkspaceMap() {
         <div className="ws-mobile-measure only-mobile">
           <MeasureSwitch measure={measure} onMeasure={changeMeasure} />
         </div>
+        <div className="segmented segmented-2 ws-panel-tabs" role="tablist" aria-label="O que editar">
+          {(
+            [
+              ["poligonos", `Polígonos (${polygons.features.length})`],
+              ["rede", `Rede (${workspace.edits.length})`],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={panel === key}
+              aria-checked={panel === key}
+              onClick={() => {
+                setPanel(key);
+                if (key === "poligonos") setEditTool(null);
+                else setTool("select");
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {panel === "rede" ? (
+          <>
+            <EditsSection
+              edits={workspace.edits}
+              tool={editTool}
+              rerouteTarget={rerouteTarget}
+              draftVertices={draftVertices}
+              saving={savingEdits}
+              network={mapData.network}
+              onTool={chooseEditTool}
+              onRemoveEdit={(index) => void saveEdits((edits) => edits.filter((_, i) => i !== index))}
+              onClear={() => void saveEdits(() => [])}
+              onFocusEdit={focusEdit}
+            />
+            {error && <div className="form-error ws-pad">{error}</div>}
+            <RunSection
+              edits={workspace.edits}
+              run={runState.run}
+              offset={runState.offset}
+              busy={runState.busy}
+              error={runState.error}
+              measure={measure}
+              radius={radius}
+              view={view}
+              resultReady={result !== null && result.runId === doneRunId}
+              onRequest={() => {
+                chooseEditTool(null);
+                void runState.request();
+              }}
+              onCancel={() => void runState.cancel()}
+              onView={setView}
+            />
+            {showingResult && view === "diferenca" && <DeltaLegend />}
+          </>
+        ) : (
+        <>
         <div className="ws-cards">
           <div className="mini-card">
             <span className="muted small">Área analisada</span>
@@ -392,12 +572,16 @@ export function WorkspaceMap() {
           })}
         </ul>
 
+        </>
+        )}
+
         <RadiusSection measure={measure} radius={radius} onRadius={setRadius} />
 
         <div className="ws-embed">
-          <SelectionPanel selection={link} measure={measure} radius={radius} onClose={() => setLink(null)} />
+          <SelectionPanel selection={link} measure={measure} radius={radius} onClose={() => setLink(null)} actions={linkActions} />
         </div>
 
+        <BasemapPicker basemap={basemap} onBasemap={setBasemap} />
         <LayerToggles flags={flags} onToggle={toggle} withPolygons error={overlayError} />
 
         <div className="ws-embed">
@@ -409,19 +593,30 @@ export function WorkspaceMap() {
       <main className="ws-map">
         <MapView
           ref={mapRef}
-          data={data}
+          data={mapData}
           measure={measure}
           radius={radius}
           flags={flags}
-          selectedId={link?.properties.link_id ?? null}
+          selectedId={rerouteTarget ?? link?.properties.link_id ?? null}
           onSelect={setLink}
+          basemap={basemap}
+          symbology={view === "cenario" ? "syntax" : "delta"}
+          edits={mapEdits}
+          showNewLines={!showingResult}
+          onPickLink={onPickLink}
+          onLineComplete={onLineComplete}
+          pin={pinOnMap}
           polygons={polygons}
           selectedPolygonId={selectedId}
           onSelectPolygon={setSelectedId}
-          tool={tool}
+          tool={mapTool}
           rightInset={selected ? 740 : 0}
           onDrawComplete={(ring) => void onDrawComplete(ring)}
-          onDrawCancel={() => setTool("select")}
+          onDrawCancel={() => {
+            if (rerouteTarget) setRerouteTarget(null);
+            else if (editTool) setEditTool(null);
+            else setTool("select");
+          }}
           onDraftChange={setDraftVertices}
           onCursor={([lng, lat], zoom) => setCursor(`${fmt(lat, 5)}, ${fmt(lng, 5)} · zoom ${fmt(zoom, 1)}`)}
           onOverlayError={(o) => setOverlayError(OPEN_LAYERS.find(([k]) => k === o)?.[1] ?? o)}
@@ -433,7 +628,16 @@ export function WorkspaceMap() {
               <span className="dot-green" aria-hidden="true" />
               {selected ? `${selected.properties.code} · ${selected.properties.name}` : `${polygons.features.length} polígonos ativos`}
             </span>
-            <span className="chip-dark mono">{legendTitle}</span>
+            {workspace.edits.length > 0 && (
+              <span className="chip-dark">
+                <span className="dot-orange" aria-hidden="true" />
+                {workspace.edits.length} {workspace.edits.length === 1 ? "edição" : "edições"} na rede
+              </span>
+            )}
+            <span className="chip-dark mono">
+              {showingResult ? `CENÁRIO · ${view === "cenario" ? "VALORES" : "DIFERENÇA"} · ` : ""}
+              {legendTitle}
+            </span>
           </div>
         </div>
         <div className="ws-zoom">
@@ -460,7 +664,6 @@ export function WorkspaceMap() {
             measure={measure}
             radius={radius}
             network={data.network}
-            onExport={() => exportFeatures(selected.properties.id)}
             onClose={() => setSelectedId(null)}
           />
         )}
@@ -473,10 +676,16 @@ export function WorkspaceMap() {
         </span>
         <span>{cursor}</span>
         <span>
-          {tool === "draw" ? `DESENHANDO · ${draftVertices} VÉRTICES` : link ? `TRECHO #${link.properties.link_id}` : "SELECIONAR"}
+          {editing
+            ? `REDE · ${EDIT_LABEL[editTool].verb.toUpperCase()}${draftVertices ? ` · ${draftVertices} PONTOS` : ""}`
+            : tool === "draw"
+              ? `DESENHANDO · ${draftVertices} VÉRTICES`
+              : link
+                ? `TRECHO #${link.properties.link_id}`
+                : "SELECIONAR"}
         </span>
         <span className="spacer" />
-        <span>© OpenStreetMap · OpenFreeMap · Desenvolvido por Erick K. Bonfim</span>
+        <span>© OpenStreetMap · Desenvolvido por Erick K. Bonfim</span>
       </footer>
     </div>
   );

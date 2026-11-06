@@ -7,6 +7,16 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <meta name="theme-color" content="#050607" />
     <title>QUANTUMCO · Brusque</title>
+    <script>
+      // tema salvo (src/lib/theme.tsx) antes do React, para a página não piscar
+      (function () {
+        var pref = "system";
+        try { pref = localStorage.getItem("qc-theme") || "system"; } catch (e) {}
+        var light = pref === "light" || (pref === "system" && matchMedia("(prefers-color-scheme: light)").matches);
+        document.documentElement.dataset.theme = light ? "light" : "dark";
+        document.documentElement.style.colorScheme = light ? "light" : "dark";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

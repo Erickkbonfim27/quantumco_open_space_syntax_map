@@ -1,11 +1,12 @@
 """Cenário do usuário (design "Quantumco Plataforma"): um espaço de trabalho com polígonos.
 
-As edições de rede ("e se…") do laboratório entram aqui depois; por enquanto o cenário guarda
-nome, medida inicial, status e os polígonos desenhados.
+Guarda nome, medida inicial, status, os polígonos desenhados e as edições da rede ("e se…":
+remover, interditar, criar ou redesenhar vias), que um cálculo na fila transforma em resultado.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -13,14 +14,13 @@ from uuid import UUID, uuid4
 
 from shapely.geometry import Polygon as ShapelyPolygon
 
+from quantumco.scenarios.domain.common import BOUNDS, InvalidWorkspaceError
+from quantumco.scenarios.domain.network_edits import NetworkEdit, check_edits
+
+__all__ = ["BOUNDS", "InvalidWorkspaceError"]
+
 MAX_VERTICES = 500
 MAX_POLYGONS = 50
-# limites de Brusque + faixa de 7 km (graus, WGS84) — polígonos fora disso não fazem sentido
-BOUNDS = (-49.12, -27.33, -48.70, -26.93)
-
-
-class InvalidWorkspaceError(ValueError):
-    pass
 
 
 class Measure(StrEnum):
@@ -80,6 +80,7 @@ class Workspace:
     created_at: datetime
     updated_at: datetime
     polygons: list[AreaPolygon] = field(default_factory=list)
+    edits: list[NetworkEdit] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.name = _clean_name(self.name, "Cenário sem nome")
@@ -109,6 +110,12 @@ class Workspace:
         self.polygons = [p for p in self.polygons if p.polygon_id != polygon_id]
         if len(self.polygons) == before:
             raise InvalidWorkspaceError("Polígono não encontrado.")
+        self.updated_at = now
+
+    def set_edits(self, edits: Sequence[NetworkEdit], now: datetime) -> None:
+        """Substitui a lista de edições da rede (a tela manda a lista inteira)."""
+        check_edits(edits)
+        self.edits = list(edits)
         self.updated_at = now
 
     def update(

@@ -68,7 +68,19 @@ function matchByClass(pick: (group: HighwayGroup) => string | number, fallback: 
   return ["match", ["get", "highway"], ...pairs, fallback] as unknown as ExpressionSpecification;
 }
 
-export const lineColor = (): ExpressionSpecification => matchByClass((g) => g.color, FALLBACK_COLOR);
+/** Em fundo claro, os mesmos degraus de cinza invertidos (mais escuro = mais estrutural). */
+const LIGHT_COLORS: Record<string, string> = {
+  estrutural: "#1C2224",
+  arterial: "#3A4246",
+  coletora: "#5C6467",
+  local: "#7A8386",
+  servico: "#A3AAAD",
+  pedestre: "#8A9396",
+  rural: "#B5BBBD",
+};
+
+export const lineColor = (tone: "light" | "dark" = "dark"): ExpressionSpecification =>
+  matchByClass((g) => (tone === "light" ? (LIGHT_COLORS[g.key] ?? g.color) : g.color), FALLBACK_COLOR);
 
 /** Largura cresce com o zoom; a base vem da hierarquia da via. */
 export const lineWidth = (scale = 1): ExpressionSpecification => {

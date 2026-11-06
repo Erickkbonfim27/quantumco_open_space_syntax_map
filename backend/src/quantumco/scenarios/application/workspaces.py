@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from uuid import UUID
 
 from quantumco.scenarios.application.ports import WorkspaceRepository
+from quantumco.scenarios.domain.network_edits import NetworkEdit
 from quantumco.scenarios.domain.workspace import (
     AreaPolygon,
     Measure,
@@ -69,6 +71,14 @@ class Workspaces:
         polygon = workspace.add_polygon(name=name, ring=ring, now=self._clock.now())
         self._repo.save(workspace)
         return polygon
+
+    def set_edits(
+        self, owner_id: UUID, workspace_id: UUID, edits: Sequence[NetworkEdit]
+    ) -> Workspace:
+        workspace = self._owned(owner_id, workspace_id)
+        workspace.set_edits(edits, self._clock.now())
+        self._repo.save(workspace)
+        return workspace
 
     def remove_polygon(self, owner_id: UUID, workspace_id: UUID, polygon_id: UUID) -> None:
         workspace = self._owned(owner_id, workspace_id)

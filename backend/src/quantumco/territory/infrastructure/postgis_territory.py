@@ -18,6 +18,7 @@ from quantumco.territory.application.ports import (
     PolygonOverlaps,
     Ring,
 )
+from quantumco.territory.domain.addresses import AddressHit
 from quantumco.territory.domain.profile import TractOverlap, ZoneOverlap
 from quantumco.territory.domain.records import LayerData
 
@@ -100,6 +101,17 @@ class PostgisTerritoryRepository:
                     "select layer, kind, name, tract_code, attrs, "
                     f"ST_Transform(ST_SetSRID(ST_MakePoint(lon, lat), 4326), {SRID}) from stage_p"
                 )
+            if data.addresses:
+                conn.execute("delete from territory.addresses")
+                with conn.cursor().copy(
+                    "copy territory.addresses (street, number, locality, cep, units, search_key, "
+                    "lon, lat) from stdin"
+                ) as copy:
+                    for a in data.addresses:
+                        copy.write_row(
+                            (a.street, a.number, a.locality, a.cep, a.units, a.search_key,
+                             a.lon, a.lat)
+                        )  # fmt: skip
             conn.execute(
                 "insert into territory.layers "
                 "(layer, source, source_url, license, rows, fetched_at, meta) "
@@ -110,7 +122,15 @@ class PostgisTerritoryRepository:
                 (data.layer, data.source, data.source_url, data.license, data.rows, fetched_at,
                  Jsonb(dict(data.meta))),
             )  # fmt: skip
-        conn_note = "setores" if data.tracts else ("zonas" if data.zones else "pontos")
+        conn_note = (
+            "setores"
+            if data.tracts
+            else "zonas"
+            if data.zones
+            else "endereços"
+            if data.addresses
+            else "pontos"
+        )
         log.info("  %s: %d %s substituídos", data.layer, data.rows, conn_note)
 
     def layers(self) -> Sequence[Mapping[str, Any]]:
@@ -312,3 +332,27 @@ class PostgisTerritoryReader:
             points=[(round(float(r[0]), 6), round(float(r[1]), 6), r[2]) for r in points],
             zone_shapes=[{"layer": r[0], "category": r[1], "geometry": r[2]} for r in shapes],
         )
+
+
+class PostgisAddressIndex:
+    """Busca no índice de endereços: todas as palavras no nome do logradouro (sem acento)."""
+
+    def __init__(self, pool: ConnectionPool) -> None:
+        self._pool = pool
+
+    def candidates(self, words: Sequence[str], limit: int = 600) -> list[AddressHit]:
+        if not words:
+            return []
+        where = " and ".join(["search_key like %s"] * len(words))
+        params: list[object] = [f"%{w}%" for w in words]
+        with self._pool.connection() as conn:
+            try:
+                rows = conn.execute(
+                    "select street, number, locality, cep, lon, lat, units "
+                    f"from territory.addresses where {where} order by length(search_key) "
+                    "limit %s",
+                    [*params, limit],
+                ).fetchall()
+            except errors.UndefinedTable:
+                return []
+        return [AddressHit(r[0], r[1], r[2], r[3], r[4], r[5], r[6]) for r in rows]

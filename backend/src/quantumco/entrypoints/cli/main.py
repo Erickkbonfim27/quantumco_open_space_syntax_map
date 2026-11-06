@@ -212,6 +212,22 @@ def scenario_list(ctx: typer.Context) -> None:
         )
 
 
+@app.command("worker")
+def worker(
+    ctx: typer.Context,
+    workers: Annotated[
+        int | None, typer.Option(help="processos em paralelo (padrão: QC_WORKERS ou 2)")
+    ] = None,
+    burst: Annotated[bool, typer.Option(help="esvazia a fila e sai (testes)")] = False,
+) -> None:
+    """Consome a fila de cálculo dos cenários (Redis + RQ) com 2–4 processos."""
+    from quantumco.entrypoints.worker.pool import start  # noqa: PLC0415
+
+    settings: Settings = ctx.obj
+    _migrate_if_configured(settings)
+    start(settings, max(1, min(8, workers or settings.workers)), burst=burst)
+
+
 @app.command("serve")
 def serve(
     host: Annotated[str, typer.Option(help="endereço")] = "127.0.0.1",

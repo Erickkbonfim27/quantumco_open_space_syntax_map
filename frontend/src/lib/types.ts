@@ -23,12 +23,14 @@ export interface LinkProperties extends MeasureProperties {
   length_m: number;
   /** só em cenários */
   removed?: boolean;
+  closed?: boolean;
   new?: boolean;
 }
 
 export interface ScenarioManifest {
   name: string;
   removed: string[];
+  closed?: string[];
   added: string[];
   engine_seconds: number;
   created_at: string;

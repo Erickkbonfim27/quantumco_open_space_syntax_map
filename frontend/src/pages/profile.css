@@ -1,0 +1,154 @@
+/* Perfil (tokens do tema; funciona no claro e no escuro). */
+
+.pf-page {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  background: var(--paper);
+}
+
+.pf-main {
+  width: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 40px 16px 32px;
+}
+
+.pf-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 28px;
+}
+
+.pf-head h1 {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 200;
+}
+
+.pf-head p {
+  margin: 0;
+}
+
+.pf-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.pf-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: 20px;
+  background: var(--surface);
+}
+
+.pf-card h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 300;
+}
+
+.pf-photo-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.pf-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.pf-photo-actions .small {
+  flex-basis: 100%;
+}
+
+.pf-email-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.pf-email {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.pf-badge {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.pf-badge-ok {
+  background: rgba(43, 212, 107, 0.14);
+  color: var(--green-text);
+}
+
+.pf-badge-warn {
+  background: rgba(var(--warn-rgb), 0.14);
+  color: var(--warn);
+}
+
+.pf-left {
+  align-self: flex-start;
+}
+
+.pf-pending {
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  color: var(--text-soft);
+}
+
+.pf-inline-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pf-text {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.pf-ok {
+  padding: 10px 12px;
+  border: 1px solid rgba(43, 212, 107, 0.35);
+  border-radius: 12px;
+  background: rgba(43, 212, 107, 0.1);
+  color: var(--hint-text);
+  font-size: 13px;
+}
+
+.pf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pf-embed .ws-section {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+@media (max-width: 760px) {
+  .pf-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pf-head h1 {
+    font-size: 28px;
+  }
+}

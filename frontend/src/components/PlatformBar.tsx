@@ -1,13 +1,13 @@
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 
 import { QuantumcoIcon } from "../brand/QuantumcoIcon";
 import { useSession } from "../lib/session";
+import { UserMenu } from "./UserMenu";
 
-const REPO = "https://github.com/Erickkbonfim27/quantumco_open_space_syntax_map/blob/main";
+export type PlatformSection = "cenarios" | "dados" | "metodologia" | "perfil";
 
-export function PlatformBar({ active }: { active: "cenarios" }) {
-  const navigate = useNavigate();
-  const { user, logOut } = useSession();
+export function PlatformBar({ active }: { active: PlatformSection }) {
+  const { user } = useSession();
   return (
     <header className="platform-bar">
       <Link to="/" className="brand-link">
@@ -15,39 +15,26 @@ export function PlatformBar({ active }: { active: "cenarios" }) {
         <span className="wordmark">QUANTUMCO</span>
       </Link>
       <nav className="tabs" aria-label="Seções">
-        <Link to="/painel" className={active === "cenarios" ? "tab tab-on" : "tab"}>
-          Cenários
-        </Link>
+        {user && (
+          <Link to="/painel" className={active === "cenarios" ? "tab tab-on" : "tab"}>
+            Cenários
+          </Link>
+        )}
         <Link to="/map" className="tab">
           Mapa público
         </Link>
-        <a className="tab" href={`${REPO}/docs/data-sources.md`} target="_blank" rel="noreferrer">
+        <Link to="/dados" className={active === "dados" ? "tab tab-on" : "tab"}>
           Dados
-        </a>
-        <a className="tab" href={`${REPO}/docs/decisions.md`} target="_blank" rel="noreferrer">
+        </Link>
+        <Link to="/metodologia" className={active === "metodologia" ? "tab tab-on" : "tab"}>
           Metodologia
-        </a>
+        </Link>
       </nav>
       <span className="spacer" />
       <Link to="/map" className="pill pill-outline pill-sm only-mobile">
         Mapa
       </Link>
-      {user && (
-        <div className="user-chip">
-          <span className="user-text">
-            <span>{user.name}</span>
-            <span className="muted-2">{user.organization ?? user.email}</span>
-          </span>
-          <span className="avatar">{user.initials}</span>
-        </div>
-      )}
-      <button
-        type="button"
-        className="pill pill-outline pill-sm"
-        onClick={() => void logOut().then(() => navigate("/"))}
-      >
-        Sair
-      </button>
+      <UserMenu />
     </header>
   );
 }

@@ -1,4 +1,4 @@
-# Serviço "backend" (FastAPI + CLI de cold start) no Easypanel.
+# Serviços "backend" (FastAPI + CLI de cold start) e "worker" (fila dos cenários) no Easypanel.
 #   Origem: GitHub, build path "/backend" (a pasta é autocontida: código + methodology/).
 #   Builder: Nixpacks. Porta interna: 8000. Dados: só no PostGIS (QC_DATABASE_URL).
 #   Cold start, uma vez, no console do serviço:  /app/.venv/bin/quantumco coldstart
@@ -23,4 +23,6 @@ cmds = [
 ]
 
 [start]
-cmd = "PYTHONUNBUFFERED=1 /app/.venv/bin/uvicorn quantumco.entrypoints.api.app:create_app --factory --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*'"
+# QC_ROLE=worker no serviço "worker" (mesma build): consome a fila de cálculo dos cenários.
+# Sem QC_ROLE (ou api): a API HTTP.
+cmd = "if [ \"${QC_ROLE:-api}\" = worker ]; then exec env PYTHONUNBUFFERED=1 /app/.venv/bin/quantumco worker; else exec env PYTHONUNBUFFERED=1 /app/.venv/bin/uvicorn quantumco.entrypoints.api.app:create_app --factory --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*'; fi"

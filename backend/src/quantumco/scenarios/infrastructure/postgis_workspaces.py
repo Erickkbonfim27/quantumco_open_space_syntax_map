@@ -4,8 +4,10 @@ import json
 from typing import Any
 from uuid import UUID
 
+from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
+from quantumco.scenarios.domain.network_edits import NetworkEdit
 from quantumco.scenarios.domain.workspace import AreaPolygon, Measure, Status, Workspace
 
 
@@ -26,12 +28,22 @@ class PostgisWorkspaceRepository:
             ring = tuple(tuple(p) for p in json.loads(geojson)["coordinates"][0])
             polygons[workspace_id].append(AreaPolygon(polygon_id, code, name, ring, created))
         return [
-            Workspace(r[0], r[1], r[2], Measure(r[3]), Status(r[4]), r[5], r[6], polygons[r[0]])
+            Workspace(
+                r[0],
+                r[1],
+                r[2],
+                Measure(r[3]),
+                Status(r[4]),
+                r[5],
+                r[6],
+                polygons[r[0]],
+                [NetworkEdit.from_json(e) for e in r[7] or []],
+            )
             for r in rows
         ]
 
     _SELECT = (
-        "select workspace_id, owner_id, name, measure, status, created_at, updated_at "
+        "select workspace_id, owner_id, name, measure, status, created_at, updated_at, edits "
         "from scenarios.workspaces "
     )
 
@@ -54,10 +66,10 @@ class PostgisWorkspaceRepository:
         with self._pool.connection() as conn, conn.transaction():
             conn.execute(
                 "insert into scenarios.workspaces (workspace_id, owner_id, name, measure, status, "
-                "created_at, updated_at) values (%s, %s, %s, %s, %s, %s, %s) "
+                "created_at, updated_at, edits) values (%s, %s, %s, %s, %s, %s, %s, %s) "
                 "on conflict (workspace_id) do update set name = excluded.name, "
                 "measure = excluded.measure, status = excluded.status, "
-                "updated_at = excluded.updated_at",
+                "updated_at = excluded.updated_at, edits = excluded.edits",
                 (
                     workspace.workspace_id,
                     workspace.owner_id,
@@ -66,6 +78,7 @@ class PostgisWorkspaceRepository:
                     workspace.status.value,
                     workspace.created_at,
                     workspace.updated_at,
+                    Jsonb([e.to_json() for e in workspace.edits]),
                 ),
             )
             conn.execute(

@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 
+from quantumco.identity.application.ports import MailDeliveryError
 from quantumco.identity.domain.email import EmailMessage, Sender
 
 API_URL = "https://api.resend.com"
@@ -17,7 +18,7 @@ _RETRYABLE = frozenset({429, 500, 502, 503, 504})
 log = logging.getLogger(__name__)
 
 
-class MailerError(RuntimeError):
+class MailerError(MailDeliveryError):
     pass
 
 
@@ -48,7 +49,14 @@ class ResendMailer:
     def _request(self, method: str, path: str, json: dict[str, Any] | None = None) -> Any:
         delay = self._initial_backoff_s
         for attempt in range(1, self._max_attempts + 1):
-            response = self._client.request(method, path, json=json, headers=self._headers)
+            try:
+                response = self._client.request(method, path, json=json, headers=self._headers)
+            except httpx.HTTPError as error:
+                if attempt == self._max_attempts:
+                    raise MailerError(f"Resend inacessível: {type(error).__name__}") from error
+                self._sleep(delay)
+                delay *= 2
+                continue
             if response.status_code not in _RETRYABLE or attempt == self._max_attempts:
                 break
             log.warning(

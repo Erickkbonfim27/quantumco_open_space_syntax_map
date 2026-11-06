@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 
 import type { Measure, RadiusKey } from "../../lib/types";
+import { BASEMAPS, type BasemapId } from "./basemapStyle";
 import { type MapFlags, OVERLAY_COLOR, type Overlay } from "./MapView";
 import { RADII, SYNTAX_PALETTE } from "./syntaxPalette";
 
@@ -17,12 +18,6 @@ export function MapTabs({ active, polygonsTo }: { active: "mapa" | "poligonos"; 
       <Link to={polygonsTo} className={active === "poligonos" ? "tab tab-on" : "tab"}>
         Polígonos
       </Link>
-      <span className="tab tab-off only-desktop" title="Em breve">
-        Comparar
-      </span>
-      <span className="tab tab-off only-desktop" title="Em breve">
-        Relatórios
-      </span>
     </nav>
   );
 }
@@ -106,6 +101,32 @@ function Toggle({ on, onClick, children }: { on: boolean; onClick: () => void; c
       </span>
       {children}
     </button>
+  );
+}
+
+/** Fundo do mapa: miniaturas clicáveis (o padrão segue o tema claro/escuro). */
+export function BasemapPicker({ basemap, onBasemap }: { basemap: BasemapId; onBasemap: (id: BasemapId) => void }) {
+  return (
+    <div className="ws-section">
+      <span className="label">FUNDO DO MAPA</span>
+      <div className="basemap-grid" role="radiogroup" aria-label="Fundo do mapa">
+        {BASEMAPS.map((b) => (
+          <button
+            key={b.id}
+            type="button"
+            role="radio"
+            aria-checked={basemap === b.id}
+            className={basemap === b.id ? "basemap-opt basemap-on" : "basemap-opt"}
+            onClick={() => onBasemap(b.id)}
+            title={b.hint}
+            aria-label={`${b.label} (${b.hint})`}
+          >
+            <span className="basemap-swatch" style={{ background: b.swatch }} aria-hidden="true" />
+            <span className="basemap-name">{b.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

@@ -1,7 +1,8 @@
 """Edições de cenário ("e se…") sobre a rede de uma análise base (Q23, Q52).
 
 Regras:
-- remover um trecho exige que ele exista;
+- remover um trecho exige que ele exista; interditar é remover com outro rótulo (a via sai do
+  grafo do mesmo jeito, mas o resultado diz que foi interdição);
 - uma rua nova se conecta à rede pelas PONTAS: cada ponta é encaixada no ponto mais próximo de
   um trecho existente (até `snap_tolerance_m`); se cair no meio de um trecho, ele é dividido ali
   para virar um cruzamento de verdade. Cruzamentos no meio da rua nova NÃO conectam (como uma
@@ -31,6 +32,7 @@ class InvalidEditError(ValueError):
 @dataclass(frozen=True, slots=True)
 class RemoveLink:
     link_id: str
+    closed: bool = False  # interdição (obra, bloqueio): mesmo efeito, outro rótulo
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +53,7 @@ class EditedNetwork:
     # id do trecho no cenário → id do trecho na base (metades de trechos divididos)
     origin: dict[str, str] = field(default_factory=dict)
     removed: list[str] = field(default_factory=list)
+    closed: list[str] = field(default_factory=list)  # subconjunto de `removed`
     added: list[str] = field(default_factory=list)
     snaps_m: list[float] = field(default_factory=list)
 
@@ -68,8 +71,12 @@ def apply_edits(
         if isinstance(edit, RemoveLink):
             if edit.link_id not in by_id:
                 raise InvalidEditError(f"trecho {edit.link_id!r} não existe na rede base")
+            if edit.link_id in result.removed:
+                raise InvalidEditError(f"trecho {edit.link_id!r} alterado duas vezes")
             result.links = [link for link in result.links if link.link_id != edit.link_id]
             result.removed.append(edit.link_id)
+            if edit.closed:
+                result.closed.append(edit.link_id)
 
     for k, edit in enumerate(e for e in edits if isinstance(e, AddStreet)):
         coords = list(edit.coords)

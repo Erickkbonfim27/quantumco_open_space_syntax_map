@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
@@ -59,18 +59,27 @@ class RunScenario:
         self._clock = clock
         self._snap = snap_tolerance_m
 
-    def __call__(self, name: str, edits: Sequence[Edit]) -> tuple[ScenarioResult, str]:
+    def __call__(
+        self,
+        name: str,
+        edits: Sequence[Edit],
+        on_stage: Callable[[str], None] | None = None,
+    ) -> tuple[ScenarioResult, str]:
+        """`on_stage` recebe loading, editing, engine, comparing e saving, nessa ordem."""
         if not _NAME.match(name):
             raise ValueError("nome do cenário: minúsculas, números e hífen (ex.: ponte-centro)")
         if not edits:
             raise ValueError("cenário sem edições")
+        stage = on_stage or (lambda _: None)
         started = time.perf_counter()
         cfg = self._config
+        stage("loading")
         base = self._base.current()
         if base is None:
             raise NoBaseAnalysisError("nenhuma análise publicada; rode `quantumco coldstart`")
         log.info("[1/4] base %s: %d trechos", base.analysis_id, len(base.links))
 
+        stage("editing")
         edited = apply_edits(base.links, edits, self._snap)
         log.info(
             "[2/4] edições: %d removidos, %d novos, encaixes a %s m",
@@ -85,6 +94,7 @@ class RunScenario:
         report_ids = [rid for rid in base_ids if rid not in set(edited.removed)] + edited.added
 
         distances = [r.distance_m(cfg.radius_n_m) for r in cfg.radii]
+        stage("engine")
         log.info("[3/4] análise angular da cidade inteira (%d retas)…", len(pieces))
         t_engine = time.perf_counter()
         run = self._analyzer.analyze(pieces, distances)
@@ -93,12 +103,14 @@ class RunScenario:
 
         scenario = raw_link_measures(report_ids, pieces, report_of_piece, run, cfg)
 
+        stage("comparing")
         log.info("[4/4] comparação com a base (cortes de classe da base)")
         rows, summary = _compare(
             base,
             base_ids=base_ids,
             report_ids=report_ids,
             removed=edited.removed,
+            closed=edited.closed,
             scenario=scenario,
             cfg=cfg,
         )
@@ -114,6 +126,7 @@ class RunScenario:
             "engine": run.engine,
             "engine_version": run.engine_version,
             "removed": edited.removed,
+            "closed": edited.closed,
             "added": edited.added,
             "snaps_m": edited.snaps_m,
             "pieces": len(pieces),
@@ -130,6 +143,7 @@ class RunScenario:
             new_links=new_links,
             manifest=manifest,
         )
+        stage("saving")
         location = self._repository.save(result)
         log.info(
             "cenário %s concluído em %.1fs → %s", name, time.perf_counter() - started, location
@@ -143,6 +157,7 @@ def _compare(
     base_ids: list[str],
     report_ids: list[str],
     removed: list[str],
+    closed: list[str],
     scenario: dict[str, FloatArray],
     cfg: AnalysisConfig,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, float]]]:
@@ -152,7 +167,7 @@ def _compare(
     base_in_result = np.array([link.in_result_zone for link in base.links])
     rows: dict[str, dict[str, Any]] = {rid: {} for rid in report_ids}
     for rid in removed:
-        rows[rid] = {"removed": True}
+        rows[rid] = {"removed": True, "closed": True} if rid in closed else {"removed": True}
     summary: dict[str, dict[str, float]] = {}
 
     for key, scen_values in scenario.items():
@@ -186,6 +201,6 @@ def _compare(
 
 def _edit_json(edit: Edit) -> dict[str, Any]:
     if isinstance(edit, RemoveLink):
-        return {"type": "remove", "link_id": edit.link_id}
+        return {"type": "close" if edit.closed else "remove", "link_id": edit.link_id}
     assert isinstance(edit, AddStreet)
     return {"type": "add", "coords": [list(c) for c in edit.coords]}

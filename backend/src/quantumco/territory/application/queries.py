@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Protocol
 
 from quantumco.territory.application.ports import Ring, TerritoryReader
 from quantumco.territory.domain import profile
+from quantumco.territory.domain.addresses import AddressHit, AddressQuery, rank
 
 # Espécies do CNEFE 2022 (COD_ESPECIE) que viram contagens no painel.
 CNEFE_KINDS = (
@@ -91,3 +92,20 @@ class GetPolygonProfile:
                 "zones": [dict(z) for z in found.zone_shapes],
             },
         }
+
+
+class AddressIndex(Protocol):
+    def candidates(self, words: Sequence[str], limit: int = 600) -> list[AddressHit]: ...
+
+
+class SearchAddresses:
+    """Endereços de Brusque (CNEFE 2022) que combinam com o texto digitado."""
+
+    def __init__(self, index: AddressIndex) -> None:
+        self._index = index
+
+    def __call__(self, text: str, limit: int = 8) -> list[AddressHit]:
+        query = AddressQuery.parse(text[:120])
+        if not query.searchable:
+            return []
+        return rank(self._index.candidates(query.words), query, limit)

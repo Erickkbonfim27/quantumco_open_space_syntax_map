@@ -44,6 +44,20 @@ class Place:
 
 
 @dataclass(frozen=True, slots=True)
+class Address:
+    """Ponto do índice de endereços: um número de um logradouro, ou o logradouro (number=None)."""
+
+    street: str
+    number: int | None
+    locality: str | None
+    cep: str | None
+    lon: float
+    lat: float
+    units: int
+    search_key: str
+
+
+@dataclass(frozen=True, slots=True)
 class LayerData:
     """Uma camada inteira, pronta para substituir a anterior de mesmo nome."""
 
@@ -54,8 +68,9 @@ class LayerData:
     tracts: Sequence[Tract] = ()
     zones: Sequence[Zone] = ()
     places: Sequence[Place] = ()
+    addresses: Sequence[Address] = ()
     meta: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def rows(self) -> int:
-        return len(self.tracts) + len(self.zones) + len(self.places)
+        return len(self.tracts) + len(self.zones) + len(self.places) + len(self.addresses)

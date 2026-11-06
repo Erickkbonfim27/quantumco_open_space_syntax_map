@@ -103,6 +103,10 @@ class PostgisScenarioRepository:
         log.info("cenário %s gravado no PostGIS (%d trechos)", result.name, len(result.rows))
         return f"postgis:syntax_analysis.scenarios/{result.name}"
 
+    def delete(self, name: str) -> None:
+        with connect(self._url) as conn:
+            conn.execute("delete from syntax_analysis.scenarios where name = %s", (name,))
+
 
 _LINKS = """
 select l.link_id, l.highway, l.zone, round(l.length_m::numeric, 1)::float8,

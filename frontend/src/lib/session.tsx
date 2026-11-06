@@ -1,7 +1,8 @@
 import { createContext, type ReactNode, use, useCallback, useEffect, useMemo, useState } from "react";
 
 import { api, ApiError } from "./api";
-import type { User } from "./platformTypes";
+import type { User, UserPreferences } from "./platformTypes";
+import { useTheme } from "./theme";
 
 interface SignUpData {
   name: string;
@@ -16,6 +17,10 @@ interface SessionValue {
   logIn: (email: string, password: string) => Promise<void>;
   signUp: (data: SignUpData) => Promise<void>;
   logOut: () => Promise<void>;
+  /** troca o usuário em memória (depois de editar o perfil) */
+  replaceUser: (user: User) => void;
+  /** grava tema/fundo no perfil (sem sessão, fica só neste navegador) */
+  savePreferences: (prefs: UserPreferences) => void;
 }
 
 const SessionContext = createContext<SessionValue | null>(null);
@@ -23,6 +28,13 @@ const SessionContext = createContext<SessionValue | null>(null);
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const { setPreference } = useTheme();
+  const savedTheme = user?.preferences.theme;
+
+  // o tema salvo no perfil vale em qualquer aparelho em que a pessoa entrar
+  useEffect(() => {
+    if (savedTheme) setPreference(savedTheme);
+  }, [savedTheme, setPreference]);
 
   useEffect(() => {
     api<{ user: User }>("me")
@@ -55,9 +67,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const replaceUser = useCallback((next: User) => setUser(next), []);
+
+  const savePreferences = useCallback(
+    (prefs: UserPreferences) => {
+      if (!user) return;
+      setUser({ ...user, preferences: { ...user.preferences, ...prefs } });
+      void api<{ user: User }>("me", { method: "PATCH", json: { preferences: prefs } }).catch(() => undefined);
+    },
+    [user],
+  );
+
   const value = useMemo(
-    () => ({ user, loading, logIn, signUp, logOut }),
-    [user, loading, logIn, signUp, logOut],
+    () => ({ user, loading, logIn, signUp, logOut, replaceUser, savePreferences }),
+    [user, loading, logIn, signUp, logOut, replaceUser, savePreferences],
   );
   return <SessionContext value={value}>{children}</SessionContext>;
 }

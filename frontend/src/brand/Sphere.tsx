@@ -1,8 +1,11 @@
 import { useEffect, useRef } from "react";
 
+import { cssToken, useTheme } from "../lib/theme";
+
 /**
  * Esfera de partículas da marca (Quantumco Brand): síncrotron com os feixes verde e azul.
- * Respeita prefers-reduced-motion (desenha um quadro só).
+ * Respeita prefers-reduced-motion (desenha um quadro só). As partículas neutras usam a tinta do
+ * tema (--fg-rgb): claras no escuro, grafite no claro; os feixes ficam verde e azul.
  */
 const POINTS = (() => {
   const n = 1600;
@@ -15,7 +18,7 @@ const POINTS = (() => {
   });
 })();
 
-function draw(canvas: HTMLCanvasElement, t: number) {
+function draw(canvas: HTMLCanvasElement, t: number, ink: string) {
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.clientWidth * dpr;
   const H = canvas.clientHeight * dpr;
@@ -69,8 +72,8 @@ function draw(canvas: HTMLCanvasElement, t: number) {
           ? `rgba(59,140,255,${0.5 + d * 0.5})`
           : py < 0.2
             ? `rgba(43,212,107,${0.5 + d * 0.5})`
-            : `rgba(244,246,245,${0.15 + d * 0.6})`
-        : `rgba(244,246,245,${0.06 + d * 0.7})`;
+            : `rgba(${ink},${0.15 + d * 0.6})`
+        : `rgba(${ink},${0.06 + d * 0.7})`;
     const s = (0.7 + d * 1.1) * dpr;
     g.fillRect(cx + x * R, cy + py * R, s, s);
   }
@@ -79,20 +82,27 @@ function draw(canvas: HTMLCanvasElement, t: number) {
 
 export function Sphere({ className, speed = 0.0025 }: { className?: string; speed?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const angle = useRef(0.6); // continua girando de onde parou quando o tema muda
+  const { theme } = useTheme();
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let t = 0.6;
+    // a tinta é lida já no quadro: ao trocar o tema, o <html data-theme> só muda no efeito do
+    // ThemeProvider, que roda depois deste
+    let ink = "";
+    const paint = () => {
+      ink ||= cssToken("--fg-rgb", "244, 246, 245");
+      draw(canvas, angle.current, ink);
+    };
     let frame = 0;
     const loop = () => {
-      t += speed;
-      draw(canvas, t);
+      angle.current += speed;
+      paint();
       frame = requestAnimationFrame(loop);
     };
-    if (reduced) draw(canvas, t);
-    else frame = requestAnimationFrame(loop);
+    frame = requestAnimationFrame(reduced ? paint : loop);
     return () => cancelAnimationFrame(frame);
-  }, [speed]);
+  }, [speed, theme]);
   return <canvas ref={ref} className={className} aria-hidden="true" />;
 }

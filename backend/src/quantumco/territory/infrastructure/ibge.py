@@ -15,7 +15,8 @@ import pandas as pd
 from shapely.geometry import MultiPolygon, Polygon, mapping
 
 from quantumco.territory.domain import profile
-from quantumco.territory.domain.records import LayerData, Number, Place, Tract
+from quantumco.territory.domain.addresses import normalize
+from quantumco.territory.domain.records import Address, LayerData, Number, Place, Tract
 from quantumco.territory.infrastructure.download import fetch_file
 
 log = logging.getLogger(__name__)
@@ -174,14 +175,20 @@ class CnefeSource:
         log.info(
             "  CNEFE: %d endereços com coordenada fina (nível ≤ %d)", len(places), CNEFE_MAX_LEVEL
         )
+        addresses = cnefe_addresses(path)
+        log.info("  CNEFE: índice de busca com %d números e logradouros", len(addresses))
+        source = "IBGE · CNEFE 2022 (Cadastro Nacional de Endereços para Fins Estatísticos)"
         return [
             LayerData(
-                layer="cnefe",
-                source="IBGE · CNEFE 2022 (Cadastro Nacional de Endereços para Fins Estatísticos)",
+                layer="cnefe", source=source, source_url=CNEFE_URL, license=LICENSE, places=places
+            ),
+            LayerData(
+                layer="enderecos",
+                source=source + " · índice de busca",
                 source_url=CNEFE_URL,
                 license=LICENSE,
-                places=places,
-            )
+                addresses=addresses,
+            ),
         ]
 
     @staticmethod
@@ -215,3 +222,59 @@ class CnefeSource:
                 attrs={"level": int(level)},
             )
         log.info("  CNEFE: %d endereços sem coordenada fina ficaram de fora", skipped)
+
+
+def _title(*parts: object) -> str:
+    words = " ".join(str(p).strip() for p in parts if str(p).strip() not in ("", "nan"))
+    small = {"de", "da", "do", "das", "dos", "e"}
+    return " ".join(
+        w.lower() if i and w.lower() in small else w.capitalize()
+        for i, w in enumerate(words.split())
+    )
+
+
+def cnefe_addresses(path: Path) -> list[Address]:
+    """Índice de busca: um ponto por número de logradouro (mediana) e um por logradouro."""
+    columns = ["NOM_TIPO_SEGLOGR", "NOM_TITULO_SEGLOGR", "NOM_SEGLOGR", "NUM_ENDERECO", "CEP",
+               "DSC_LOCALIDADE", "LATITUDE", "LONGITUDE", "NV_GEO_COORD"]  # fmt: skip
+    with zipfile.ZipFile(path) as archive:
+        name = next(n for n in archive.namelist() if n.lower().endswith(".csv"))
+        with archive.open(name) as raw:
+            frame = pd.read_csv(raw, sep=";", dtype=str, usecols=columns, encoding="utf-8")
+    frame["lat"] = pd.to_numeric(frame["LATITUDE"], errors="coerce")
+    frame["lon"] = pd.to_numeric(frame["LONGITUDE"], errors="coerce")
+    level = pd.to_numeric(frame["NV_GEO_COORD"], errors="coerce")
+    frame = frame[(level <= CNEFE_MAX_LEVEL) & frame["lat"].notna() & frame["lon"].notna()]
+    frame = frame[frame["NOM_SEGLOGR"].notna()]
+    frame["street"] = [
+        _title(t, ti, n)
+        for t, ti, n in zip(
+            frame["NOM_TIPO_SEGLOGR"],
+            frame["NOM_TITULO_SEGLOGR"],
+            frame["NOM_SEGLOGR"],
+            strict=True,
+        )
+    ]
+    frame["number"] = pd.to_numeric(frame["NUM_ENDERECO"], errors="coerce")
+    frame["locality"] = frame["DSC_LOCALIDADE"].fillna("").map(lambda v: _title(v) or "")
+    out: list[Address] = []
+
+    def mode(series: pd.Series) -> str | None:
+        values = series.dropna()
+        values = values[values != ""]
+        return str(values.mode().iloc[0]) if len(values) else None
+
+    numbered = frame[frame["number"].notna() & (frame["number"] > 0)]
+    for (street, number), group in numbered.groupby(["street", "number"], sort=False):
+        out.append(
+            Address(str(street), int(number), mode(group["locality"]), mode(group["CEP"]),
+                    float(group["lon"].median()), float(group["lat"].median()), len(group),
+                    normalize(str(street)))
+        )  # fmt: skip
+    for street, group in frame.groupby("street", sort=False):
+        out.append(
+            Address(str(street), None, mode(group["locality"]), mode(group["CEP"]),
+                    float(group["lon"].median()), float(group["lat"].median()), len(group),
+                    normalize(str(street)))
+        )  # fmt: skip
+    return out

@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { formatMeters } from "../../lib/format";
 import type { Measure, RadiusKey } from "../../lib/types";
 import { groupFor } from "./highwayGroups";
@@ -9,11 +11,13 @@ interface SelectionPanelProps {
   measure: Measure;
   radius: RadiusKey;
   onClose: () => void;
+  /** ações extras (ex.: remover/interditar no cenário) */
+  actions?: ReactNode;
 }
 
 const number = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 
-export function SelectionPanel({ selection, measure, radius, onClose }: SelectionPanelProps) {
+export function SelectionPanel({ selection, measure, radius, onClose, actions }: SelectionPanelProps) {
   if (!selection) {
     return (
       <section className="panel-section">
@@ -65,6 +69,24 @@ export function SelectionPanel({ selection, measure, radius, onClose }: Selectio
               <dd>{number.format(otherValue)}</dd>
             </>
           )}
+          {link.removed && (
+            <>
+              <dt>No cenário</dt>
+              <dd>{link.closed ? "Interditada" : "Removida"}</dd>
+            </>
+          )}
+          {link.new && (
+            <>
+              <dt>No cenário</dt>
+              <dd>Via nova</dd>
+            </>
+          )}
+          {typeof link[`d_${measure}_${radius}`] === "number" && (
+            <>
+              <dt>Mudança de classe</dt>
+              <dd>{(link[`d_${measure}_${radius}`] as number) > 0 ? "+" : ""}{link[`d_${measure}_${radius}`]}</dd>
+            </>
+          )}
           <dt>Hierarquia</dt>
           <dd>
             {groupFor(link.highway)?.label ?? "–"} <code>{link.highway}</code>
@@ -79,13 +101,18 @@ export function SelectionPanel({ selection, measure, radius, onClose }: Selectio
               <dd>{link.is_bridge ? "Ponte" : "Túnel"}</dd>
             </>
           )}
-          <dt>Via no OSM</dt>
-          <dd>
-            <a href={`https://www.openstreetmap.org/way/${link.osm_way_id}`} target="_blank" rel="noreferrer">
-              way/{link.osm_way_id}
-            </a>
-          </dd>
+          {link.osm_way_id ? (
+            <>
+              <dt>Via no OSM</dt>
+              <dd>
+                <a href={`https://www.openstreetmap.org/way/${link.osm_way_id}`} target="_blank" rel="noreferrer">
+                  way/{link.osm_way_id}
+                </a>
+              </dd>
+            </>
+          ) : null}
         </dl>
+        {actions}
         <a className="button-ghost" href={noteUrl} target="_blank" rel="noreferrer">
           Reportar erro na rede →
         </a>

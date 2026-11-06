@@ -8,6 +8,7 @@ import numpy as np
 
 from quantumco.shared_kernel.clock import Clock
 from quantumco.syntax_analysis.application.config import AnalysisConfig
+from quantumco.syntax_analysis.application.pipeline import raw_link_measures
 from quantumco.syntax_analysis.application.ports import (
     AnalysisRepository,
     AnalysisResult,
@@ -15,7 +16,6 @@ from quantumco.syntax_analysis.application.ports import (
     FloatArray,
     NetworkSnapshotSource,
 )
-from quantumco.syntax_analysis.domain.measures import nach, nain
 from quantumco.syntax_analysis.domain.percentiles import classify, length_weighted_percentile
 from quantumco.syntax_analysis.domain.segmentation import explode
 
@@ -72,36 +72,28 @@ class RunAnalysis:
             run.unmatched_pieces,
         )
 
-        # agrega retas → trechos (média ponderada pela extensão)
-        link_index = {link.link_id: i for i, link in enumerate(network.links)}
-        piece_link = np.array([link_index[p.link_id] for p in pieces])
-        piece_len = np.array([p.length_m for p in pieces])
+        # retas → trechos (NAIN/NACH, média ponderada pela extensão). É a mesma conta dos
+        # cenários (`pipeline.raw_link_measures`): comparar cenário com a base só faz sentido
+        # se as duas passam pelo mesmo código.
         link_len = np.array([link.length_m for link in network.links])
         in_result = np.array([link.in_result_zone for link in network.links])
-
-        def to_links(values: FloatArray) -> FloatArray:
-            ok = ~np.isnan(values)
-            weighted = np.bincount(
-                piece_link[ok], weights=values[ok] * piece_len[ok], minlength=len(link_len)
-            )
-            weights = np.bincount(piece_link[ok], weights=piece_len[ok], minlength=len(link_len))
-            out = np.full(len(link_len), np.nan)
-            np.divide(weighted, weights, out=out, where=weights > 0)
-            return out
+        measures = raw_link_measures(
+            [link.link_id for link in network.links],
+            pieces,
+            [p.link_id for p in pieces],
+            run,
+            cfg,
+        )
 
         log.info("[4/4] NAIN/NACH, percentis ponderados por extensão e %d classes", cfg.classes)
         columns: dict[str, FloatArray] = {}
         summary: dict[str, dict[str, float]] = defaultdict(dict)
-        for radius, distance in zip(cfg.radii, distances, strict=True):
-            raw = run.by_distance[distance]
-            for name, piece_values in (
-                ("nain", nain(raw.node_count, raw.total_depth)),
-                ("nach", nach(raw.choice, raw.total_depth)),
-            ):
-                values = to_links(piece_values)
+        for radius in cfg.radii:
+            for name in ("nain", "nach"):
+                key = f"{name}_{radius.key}"
+                values = measures[key]
                 scoped = np.where(in_result, values, np.nan)
                 percentile = length_weighted_percentile(scoped, link_len)
-                key = f"{name}_{radius.key}"
                 columns[key] = values
                 columns[f"c_{key}"] = classify(percentile, cfg.classes)
                 summary[key] = {

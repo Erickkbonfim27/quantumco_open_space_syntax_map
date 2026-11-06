@@ -9,16 +9,16 @@ export class ApiError extends Error {
   }
 }
 
-type Init = Omit<RequestInit, "body"> & { json?: unknown };
+type Init = RequestInit & { json?: unknown };
 
 /** Chamada à API com o cookie de sessão (HttpOnly) e mensagens de erro prontas para a tela. */
 export async function api<T>(path: string, init: Init = {}): Promise<T> {
-  const { json, headers, ...rest } = init;
+  const { json, headers, body: raw, ...rest } = init;
   const response = await fetch(`${config.apiUrl}/api/v1/${path}`, {
     credentials: "include",
     ...rest,
     headers: json === undefined ? headers : { "Content-Type": "application/json", ...headers },
-    body: json === undefined ? undefined : JSON.stringify(json),
+    body: json === undefined ? raw : JSON.stringify(json),
   });
   if (response.status === 204) return undefined as T;
   const body = (await response.json().catch(() => null)) as { detail?: unknown } | null;
@@ -38,6 +38,9 @@ export async function api<T>(path: string, init: Init = {}): Promise<T> {
 // Dados fixos entre publicações (malha, análise, município): baixados uma vez por sessão do
 // navegador e reaproveitados ao trocar de página (o mapa sintático tem ~10 MB).
 const cache = new Map<string, Promise<unknown>>();
+
+/** URL absoluta de um recurso da API (ex.: a foto de perfil, que já vem com /api/v1/…). */
+export const apiUrl = (path: string) => `${config.apiUrl}${path}`;
 
 export function apiCached<T>(path: string): Promise<T> {
   let request = cache.get(path) as Promise<T> | undefined;

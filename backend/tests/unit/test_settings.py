@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
-from quantumco.bootstrap.settings import BACKEND_ROOT, Settings
+import pytest
+
+from quantumco.bootstrap.settings import BACKEND_ROOT, Settings, load_env_file
 
 
 def test_defaults_resolve_inside_repo() -> None:
@@ -45,3 +48,22 @@ def test_database_is_mandatory() -> None:
 
     with pytest.raises(RuntimeError, match="PostGIS"):
         Settings.from_env({}).require_database()
+
+
+def test_env_file_is_reread_but_real_environment_wins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Com `serve --reload`, mudar o .env vale na próxima recarga (caso do MAIL_FROM)."""
+    env = tmp_path / ".env"
+    monkeypatch.delenv("MAIL_FROM", raising=False)
+    monkeypatch.delenv("_QC_FROM_DOTENV", raising=False)
+    monkeypatch.setenv("QC_LOG_LEVEL", "WARNING")  # definido "de verdade" no ambiente
+    env.write_text("MAIL_FROM=antigo@quantumco.com.br\nQC_LOG_LEVEL=DEBUG\n")
+    load_env_file(env)
+    assert os.environ["MAIL_FROM"] == "antigo@quantumco.com.br"
+    env.write_text("MAIL_FROM=noreply@quantumco.com.br\nQC_LOG_LEVEL=DEBUG\n")
+    load_env_file(env)  # o processo filho herda o ambiente do pai e lê o .env de novo
+    assert os.environ["MAIL_FROM"] == "noreply@quantumco.com.br"
+    assert os.environ["QC_LOG_LEVEL"] == "WARNING"
+    assert Settings.from_env({}).mail_from == "noreply@quantumco.com.br"  # padrão do código
+    monkeypatch.delenv("MAIL_FROM")

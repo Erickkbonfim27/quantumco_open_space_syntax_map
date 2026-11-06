@@ -12,6 +12,7 @@ import {
   type WorkspaceStatus,
 } from "../lib/platformTypes";
 import { useSession } from "../lib/session";
+import { cssToken, useTheme } from "../lib/theme";
 
 const FILTERS: ("todos" | WorkspaceStatus)[] = ["todos", "em_analise", "publicado", "rascunho"];
 const relative = new Intl.RelativeTimeFormat("pt-BR", { numeric: "auto" });
@@ -33,44 +34,54 @@ function greeting(name: string): string {
 }
 
 /** Miniatura com os polígonos reais do cenário (ou a marca vazia, se ainda não há nenhum). */
+function drawThumb(canvas: HTMLCanvasElement, workspace: Workspace) {
+  const g = canvas.getContext("2d");
+  if (!g) return;
+  const ink = cssToken("--fg-rgb", "244, 246, 245");
+  const dpr = window.devicePixelRatio || 1;
+  const W = 88;
+  const H = 56;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  const rings = workspace.features.map((f) => f.geometry.coordinates[0] ?? []);
+  const points = rings.flat();
+  if (points.length === 0) {
+    g.strokeStyle = `rgba(${ink},.18)`;
+    g.setLineDash([3, 3]);
+    g.strokeRect(10.5, 10.5, W - 21, H - 21);
+    return;
+  }
+  const xs = points.map((p) => p[0] ?? 0);
+  const ys = points.map((p) => p[1] ?? 0);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const scale = Math.min((W - 16) / (x1 - x0 || 1), (H - 16) / (y1 - y0 || 1));
+  const X = (x: number) => W / 2 + (x - (x0 + x1) / 2) * scale;
+  const Y = (y: number) => H / 2 - (y - (y0 + y1) / 2) * scale;
+  rings.forEach((ring) => {
+    g.beginPath();
+    ring.forEach(([x = 0, y = 0], i) => (i ? g.lineTo(X(x), Y(y)) : g.moveTo(X(x), Y(y))));
+    g.closePath();
+    g.fillStyle = "rgba(43,212,107,.12)";
+    g.fill();
+    g.strokeStyle = "#2BD46B";
+    g.lineWidth = 1.2;
+    g.stroke();
+  });
+}
+
 function Thumb({ workspace }: { workspace: Workspace }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  const { theme } = useTheme();
   useEffect(() => {
     const canvas = ref.current;
-    const g = canvas?.getContext("2d");
-    if (!canvas || !g) return;
-    const dpr = window.devicePixelRatio || 1;
-    const W = 88;
-    const H = 56;
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, W, H);
-    const rings = workspace.features.map((f) => f.geometry.coordinates[0] ?? []);
-    const points = rings.flat();
-    if (points.length === 0) {
-      g.strokeStyle = "rgba(244,246,245,.18)";
-      g.setLineDash([3, 3]);
-      g.strokeRect(10.5, 10.5, W - 21, H - 21);
-      return;
-    }
-    const xs = points.map((p) => p[0] ?? 0);
-    const ys = points.map((p) => p[1] ?? 0);
-    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-    const scale = Math.min((W - 16) / (x1 - x0 || 1), (H - 16) / (y1 - y0 || 1));
-    const X = (x: number) => W / 2 + (x - (x0 + x1) / 2) * scale;
-    const Y = (y: number) => H / 2 - (y - (y0 + y1) / 2) * scale;
-    rings.forEach((ring) => {
-      g.beginPath();
-      ring.forEach(([x = 0, y = 0], i) => (i ? g.lineTo(X(x), Y(y)) : g.moveTo(X(x), Y(y))));
-      g.closePath();
-      g.fillStyle = "rgba(43,212,107,.12)";
-      g.fill();
-      g.strokeStyle = "#2BD46B";
-      g.lineWidth = 1.2;
-      g.stroke();
-    });
-  }, [workspace]);
+    if (!canvas) return;
+    // desenha no quadro seguinte: ao trocar o tema, o <html data-theme> só muda no efeito do
+    // ThemeProvider, que roda depois dos efeitos dos filhos (a tinta lida agora seria a antiga)
+    const frame = requestAnimationFrame(() => drawThumb(canvas, workspace));
+    return () => cancelAnimationFrame(frame);
+  }, [workspace, theme]);
   return <canvas ref={ref} className="thumb" aria-hidden="true" />;
 }
 

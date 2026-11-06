@@ -10,13 +10,19 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 
 import { SessionProvider, useSession } from "./lib/session";
+import { ThemeProvider } from "./lib/theme";
+import { ConfirmEmail, ForgotPassword, ResetPassword } from "./pages/AccountLinks";
 import { Auth } from "./pages/Auth";
 import { Dashboard } from "./pages/Dashboard";
+import { DataPage } from "./pages/DataPage";
+import { MethodologyPage } from "./pages/MethodologyPage";
 import { Landing } from "./pages/Landing";
+import { Profile } from "./pages/Profile";
 import { PublicMap } from "./pages/PublicMap";
 import { WorkspaceMap } from "./pages/WorkspaceMap";
 import "./styles.css";
 import "./platform.css";
+import "./scenario.css";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useSession();
@@ -31,13 +37,27 @@ if (!root) throw new Error("elemento #root não encontrado");
 
 createRoot(root).render(
   <StrictMode>
+    <ThemeProvider>
     <BrowserRouter>
       <SessionProvider>
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/map" element={<PublicMap />} />
+          <Route path="/dados" element={<DataPage />} />
+          <Route path="/metodologia" element={<MethodologyPage />} />
           <Route path="/entrar" element={<Auth mode="login" />} />
           <Route path="/criar-conta" element={<Auth mode="signup" />} />
+          <Route path="/esqueci-senha" element={<ForgotPassword />} />
+          <Route path="/redefinir-senha" element={<ResetPassword />} />
+          <Route path="/confirmar-email" element={<ConfirmEmail />} />
+          <Route
+            path="/perfil"
+            element={
+              <RequireAuth>
+                <Profile />
+              </RequireAuth>
+            }
+          />
           <Route
             path="/painel"
             element={
@@ -58,5 +78,6 @@ createRoot(root).render(
         </Routes>
       </SessionProvider>
     </BrowserRouter>
+    </ThemeProvider>
   </StrictMode>,
 );
