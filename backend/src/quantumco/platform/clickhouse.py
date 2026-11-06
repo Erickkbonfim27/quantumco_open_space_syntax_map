@@ -67,15 +67,19 @@ class ClickHouse:
     def _headers(self) -> dict[str, str]:
         return {"X-ClickHouse-User": self.target.user, "X-ClickHouse-Key": self.target.password}
 
-    def _params(self, settings: Mapping[str, object] | None) -> dict[str, str]:
-        params = {"database": self.target.database}
+    def _params(
+        self, settings: Mapping[str, object] | None, database: str | None = None
+    ) -> dict[str, str]:
+        params = {"database": database or self.target.database}
         params |= {k: str(v) for k, v in (settings or {}).items()}
         return params
 
-    def command(self, sql: str, settings: Mapping[str, object] | None = None) -> str:
+    def command(
+        self, sql: str, settings: Mapping[str, object] | None = None, *, database: str | None = None
+    ) -> str:
         with httpx.Client(timeout=self._timeout) as client:
             response = client.post(
-                self.target.base_url, params=self._params(settings),
+                self.target.base_url, params=self._params(settings, database),
                 content=sql.encode(), headers=self._headers(),
             )  # fmt: skip
         if response.status_code != 200:
@@ -101,6 +105,10 @@ class ClickHouse:
         return int(summary.get("written_rows", 0))
 
     def migrate(self, directory: Path = MIGRATIONS_DIR) -> Sequence[str]:
+        # o banco da URL pode não existir (o serviço só cria o 'default'): cria pelo 'default'
+        self.command(
+            f"CREATE DATABASE IF NOT EXISTS {self.target.database}", database="default"
+        )  # nome já validado em ClickHouseTarget.parse (só letras, números e _)
         self.command(
             "CREATE TABLE IF NOT EXISTS schema_migrations (version String, "
             "applied_at DateTime DEFAULT now()) ENGINE = MergeTree ORDER BY version"
