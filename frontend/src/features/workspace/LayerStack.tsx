@@ -1,11 +1,13 @@
 import type { Feature, Polygon, Position } from "geojson";
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import type { PolygonProps, PolygonStats, TerritoryProfile } from "../../lib/platformTypes";
 import type { Measure, NetworkCollection, RadiusKey } from "../../lib/types";
 import { cssToken, useTheme } from "../../lib/theme";
+import type { Camera, CameraStore } from "../map/cameraStore";
 import { SYNTAX_PALETTE } from "../map/syntaxPalette";
-import { inRing } from "./geometry";
+import { inRing, tileFrame } from "./geometry";
+import { heightOf, loadRelief, paintSlice, type Relief } from "./relief";
 
 /** De cima para baixo, como no design (N1 na base da pilha). Acentos em tokens do tema. */
 const LAYERS = [
@@ -51,6 +53,37 @@ const pointStyles = (ink: Ink): Record<string, PointStyle> => ({
 });
 const cnesStyle: PointStyle = { color: "#2BD46B", size: 2.4, shape: "dot" };
 
+/** Pilha parada: inclinação e giro do design. */
+const STILL = { tilt: 58, spin: -40 };
+// Seguindo o mapa, a pilha copia o *movimento* da câmera a partir da pose do design: com o mapa
+// parado (de cima, norte para cima) ela continua na diagonal; girar o mapa gira a pilha igual e
+// inclinar o mapa (0–60°) deita a pilha até 78°, onde o relevo aparece de perfil.
+const TILT_GAIN = 1 / 3;
+const MAX_TILT = 78;
+const FOLLOW_KEY = "qc-layer-follow";
+
+function savedFollow(): boolean {
+  try {
+    return localStorage.getItem(FOLLOW_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveFollow(on: boolean): void {
+  try {
+    localStorage.setItem(FOLLOW_KEY, on ? "1" : "0");
+  } catch {
+    // vale só nesta aba
+  }
+}
+
+const noSubscribe = () => () => {};
+const noCamera = (): Camera | null => null;
+
+// Maquete do relevo no azul do território: as curvas ficam mais firmes conforme sobem.
+const RELIEF_BLUE: [number, number, number] = [59, 140, 255];
+
 const fmt = (v: number, d: number) =>
   v.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
 const pct = (v: number | null | undefined) => (typeof v === "number" ? `${fmt(v * 100, 0)}%` : "–");
@@ -64,6 +97,8 @@ interface LayerStackProps {
   measure: Measure;
   radius: RadiusKey;
   network: NetworkCollection;
+  /** câmera do mapa principal: com "seguir mapa", a pilha gira e inclina junto */
+  camera?: CameraStore;
   onClose: () => void;
 }
 
@@ -91,13 +126,7 @@ function drawTile(
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, 240, 240);
   const ring = polygon.geometry.coordinates[0] ?? [];
-  const xs = ring.map((p) => p[0] ?? 0);
-  const ys = ring.map((p) => p[1] ?? 0);
-  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-  const kx = Math.cos((((y0 + y1) / 2) * Math.PI) / 180); // aspecto em lon/lat
-  const scale = 200 / Math.max((x1 - x0) * kx, y1 - y0, 1e-9);
-  const X = (x: number) => 120 + (x - (x0 + x1) / 2) * kx * scale;
-  const Y = (y: number) => 120 - (y - (y0 + y1) / 2) * scale;
+  const { x: X, y: Y, scale } = tileFrame(ring);
   const trace = (coords: Position[]) =>
     coords.forEach(([x = 0, y = 0], i) => (i ? g.lineTo(X(x), Y(y)) : g.moveTo(X(x), Y(y))));
   const path = () => {
@@ -278,6 +307,14 @@ function formCard(b: TerritoryProfile["buildings"]): Card {
   };
 }
 
+function reliefNote(relief: Relief | "erro" | undefined): string {
+  if (relief === undefined) return "Relevo: carregando o modelo de terreno…";
+  if (relief === "erro") return "Relevo indisponível: não foi possível baixar o modelo de terreno.";
+  const { min, max, step, levels, exaggeration } = relief;
+  if (!levels.length) return `Terreno praticamente plano: ${fmt(min, 0)} m de altitude.`;
+  return `Relevo: ${fmt(min, 0)} a ${fmt(max, 0)} m de altitude (desnível de ${fmt(max - min, 0)} m). Curvas a cada ${fmt(step, step % 1 ? 1 : 0)} m, escala vertical ${fmt(exaggeration, 1)}×.`;
+}
+
 function territoryCards(profile: Profile): Record<"forma" | "risco" | "equip" | "entorno" | "pop", Card> {
   if (profile === undefined || profile === "erro") {
     const v = profile === "erro" ? "indisponível" : "…";
@@ -362,17 +399,50 @@ export function LayerStack({
   measure,
   radius,
   network,
+  camera,
   onClose,
 }: LayerStackProps) {
   const [open, setOpen] = useState(false);
   const [hover, setHover] = useState<LayerKey | null>(null);
   const tiles = useRef<Partial<Record<LayerKey, HTMLCanvasElement | null>>>({});
+  const slices = useRef<(HTMLCanvasElement | null)[]>([]);
+  const [relief, setRelief] = useState<Relief | "erro" | undefined>(undefined);
+  const [raised, setRaised] = useState(false);
+  // "seguir mapa": a pilha copia a rotação e a inclinação da câmera do mapa principal
+  const [follow, setFollow] = useState(savedFollow);
+  // terminada a animação longa (abrir, ligar/desligar), a pilha responde rápido à câmera
+  const [settled, setSettled] = useState(false);
+  const settleTimer = useRef<number | undefined>(undefined);
+  const following = follow && camera !== undefined;
+  const view = useSyncExternalStore(following ? camera.subscribe : noSubscribe, following ? camera.get : noCamera);
 
   // o pai monta um LayerStack por polígono (key), então a animação recomeça a cada seleção
   useEffect(() => {
     const t = setTimeout(() => setOpen(true), 80);
-    return () => clearTimeout(t);
+    settleTimer.current = window.setTimeout(() => setSettled(true), 950);
+    return () => {
+      clearTimeout(t);
+      window.clearTimeout(settleTimer.current);
+    };
   }, []);
+
+  const toggleFollow = () => {
+    const next = !follow;
+    setFollow(next);
+    saveFollow(next);
+    setSettled(false);
+    window.clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(() => setSettled(true), 850);
+  };
+
+  // relevo do polígono (DEM da AWS), uma vez por seleção
+  useEffect(() => {
+    const ctl = new AbortController();
+    loadRelief(polygon.geometry.coordinates[0] ?? [], ctl.signal).then(setRelief, () => {
+      if (!ctl.signal.aborted) setRelief("erro");
+    });
+    return () => ctl.abort();
+  }, [polygon]);
 
   const { theme } = useTheme();
   useEffect(() => {
@@ -387,6 +457,28 @@ export function LayerStack({
     });
     return () => cancelAnimationFrame(frame);
   }, [polygon, network, measure, radius, profile, theme]);
+
+  // fatias da maquete; depois de pintadas, sobem
+  useEffect(() => {
+    if (!relief || relief === "erro") return;
+    const frame = requestAnimationFrame(() => {
+      const { size, levels } = relief;
+      const buffer = new Uint8ClampedArray(size * size * 4);
+      const halfWidth = 0.6 * (size / 240);
+      levels.forEach((level, k) => {
+        const canvas = slices.current[k];
+        const g = canvas?.getContext("2d");
+        if (!canvas || !g) return;
+        canvas.width = size;
+        canvas.height = size;
+        const t = levels.length > 1 ? k / (levels.length - 1) : 1;
+        paintSlice(buffer, relief, level, RELIEF_BLUE, { line: 0.4 + 0.5 * t, fill: 0.045, halfWidth });
+        g.putImageData(new ImageData(buffer, size, size), 0, 0);
+      });
+      setRaised(true);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [relief]);
 
   const ring = polygon.geometry.coordinates[0] ?? [];
   let cx = 0;
@@ -420,6 +512,7 @@ export function LayerStack({
       bar: classesKm.map((km, i) => ({ w: km / totalKm, c: SYNTAX_PALETTE[i] ?? "#4A5155" })),
     },
     base: {
+      note: reliefNote(relief),
       metrics: stats
         ? [
             [`${fmt(stats.territory.area_km2, 2)} km²`, "área"],
@@ -434,6 +527,8 @@ export function LayerStack({
     },
   };
 
+  const tilt = view ? Math.min(MAX_TILT, STILL.tilt + view.pitch * TILT_GAIN) : STILL.tilt;
+  const spin = view ? STILL.spin - view.bearing : STILL.spin;
   const spacing = 80; // 7 níveis: um pouco mais juntos que os 92 px de quando eram 6
   const middle = (LAYERS.length - 1) / 2;
   const sources =
@@ -450,34 +545,66 @@ export function LayerStack({
           {polygon.properties.code} · {fmt(cy, 4)}, {fmt(cx, 4)}
         </span>
         <span className="spacer" />
+        {camera && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={follow}
+            className="toggle layer-follow"
+            onClick={toggleFollow}
+            title="As camadas giram e inclinam junto com o mapa (Ctrl + arrastar)"
+          >
+            <span className={follow ? "toggle-track toggle-on" : "toggle-track"}>
+              <span className="toggle-knob" />
+            </span>
+            <span className="mono">Seguir mapa</span>
+          </button>
+        )}
         <button type="button" className="icon-circle" onClick={onClose} aria-label="Fechar">
           ×
         </button>
       </header>
       <div className="layer-body">
-        <div className="tiles" aria-hidden="true">
+        <div className={following && settled ? "tiles tiles-follow" : "tiles"} aria-hidden="true">
           {LAYERS.map((layer, j) => {
             const on = hover === layer.key;
             const dim = hover !== null && !on;
+            // a base guarda a maquete em 3D: opacidade no próprio ladrilho achataria as fatias
+            const model = layer.key === "base";
+            const style: CSSProperties & { "--dim"?: number } = {
+              transform: `translateY(${(open ? (j - middle) * spacing : (j - middle) * 5).toFixed(0)}px) rotateX(${tilt.toFixed(2)}deg) rotateZ(${spin.toFixed(2)}deg)`,
+              zIndex: 10 - j,
+              opacity: model ? undefined : dim ? 0.3 : 1,
+              "--dim": model ? (dim ? 0.3 : 1) : undefined,
+              borderColor: on ? layer.accent : undefined,
+              background: on ? "rgba(var(--fg-rgb), 0.07)" : undefined,
+            };
             return (
               <div
                 key={layer.key}
-                className="tile"
+                className={model ? "tile tile-relief" : "tile"}
                 onMouseEnter={() => setHover(layer.key)}
                 onMouseLeave={() => setHover(null)}
-                style={{
-                  transform: `translateY(${(open ? (j - middle) * spacing : (j - middle) * 5).toFixed(0)}px) rotateX(58deg) rotateZ(-40deg)`,
-                  zIndex: 10 - j,
-                  opacity: dim ? 0.3 : 1,
-                  borderColor: on ? layer.accent : undefined,
-                  background: on ? "rgba(var(--fg-rgb), 0.07)" : undefined,
-                }}
+                style={style}
               >
                 <canvas
                   ref={(el) => {
                     tiles.current[layer.key] = el;
                   }}
                 />
+                {model &&
+                  relief &&
+                  relief !== "erro" &&
+                  relief.levels.map((level, k) => (
+                    <canvas
+                      key={level}
+                      className="relief-slice"
+                      ref={(el) => {
+                        slices.current[k] = el;
+                      }}
+                      style={{ transform: `translateZ(${raised ? heightOf(relief, level).toFixed(1) : 0}px)` }}
+                    />
+                  ))}
               </div>
             );
           })}
@@ -520,7 +647,7 @@ export function LayerStack({
           <p className="muted small layer-note">
             Fontes: IBGE Censo 2022 (setores, renda, entorno, CNEFE) · SGB (risco 2018–19,
             suscetibilidade 2013) · CNES · edificações © OpenStreetMap contributors, Overture Maps
-            Foundation (ODbL){sources ? ` · importado em ${sources.split("-").reverse().join("/")}` : ""}.
+            Foundation (ODbL) · relevo SRTM via AWS Terrain Tiles{sources ? ` · importado em ${sources.split("-").reverse().join("/")}` : ""}.
             Dados por setor estimados pela parcela de domicílios do CNEFE dentro do polígono.
           </p>
         </div>

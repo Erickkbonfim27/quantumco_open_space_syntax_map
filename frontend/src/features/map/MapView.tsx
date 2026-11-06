@@ -21,6 +21,8 @@ import { boundsOf } from "../../lib/geo";
 import type { NetworkEdit, PolygonCollection } from "../../lib/platformTypes";
 import { useTheme } from "../../lib/theme";
 import type { LinkProperties, Measure, RadiusKey, SnapshotData } from "../../lib/types";
+import type { CameraStore } from "./cameraStore";
+import { DEM_ATTRIBUTION, DEM_TILES } from "./dem";
 import { applyBasemap, type BasemapId, basemapStyle, LABEL_LAYER, type Tone, toneOf } from "./basemapStyle";
 import { lineColor, lineOpacity, lineWidth } from "./highwayGroups";
 import {
@@ -96,10 +98,6 @@ const buildingTilesUrl = () =>
     .replace(/%7B/g, "{")
     .replace(/%7D/g, "}");
 
-// Relevo: Terrain Tiles da AWS (Mapzen; SRTM, USGS, ETOPO1), dados abertos, codificação terrarium.
-const DEM_TILES = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
-const DEM_ATTRIBUTION =
-  '<a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noreferrer">Terrain Tiles (AWS · SRTM/USGS)</a>';
 const TERRAIN_EXAGGERATION = 1.15;
 const TERRAIN_PITCH = 50;
 
@@ -174,6 +172,8 @@ interface MapViewProps {
   onDrawComplete?: (ring: Position[]) => void;
   onDrawCancel?: () => void;
   onDraftChange?: (vertices: number) => void;
+  /** recebe a rotação e a inclinação do mapa a cada movimento */
+  camera?: CameraStore;
 }
 
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -377,6 +377,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       el.style.backgroundPosition = `${p.x % GRID}px ${p.y % GRID}px`;
     };
     instance.on("move", syncGrid);
+    instance.on("move", () => live.current.camera?.set(instance.getBearing(), instance.getPitch()));
 
     instance.on("load", () => {
       syncGrid();

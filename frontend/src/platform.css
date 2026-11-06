@@ -1281,6 +1281,49 @@
   height: 240px;
 }
 
+/* seguindo o mapa: resposta curta, para a pilha não ficar para trás da câmera */
+.tiles-follow .tile {
+  transition:
+    transform 0.16s ease-out,
+    opacity 0.25s,
+    border-color 0.25s,
+    background 0.25s;
+}
+
+/* N1 com a maquete de relevo: as fatias sobem em 3D dentro do ladrilho
+   (overflow e opacidade no ladrilho achatariam o 3D, por isso a opacidade vai nos filhos) */
+.tile-relief {
+  overflow: visible;
+  transform-style: preserve-3d;
+}
+
+.tile-relief > canvas {
+  opacity: var(--dim, 1);
+  transition: opacity 0.25s;
+}
+
+.tile-relief > .relief-slice {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  transition:
+    transform 1.1s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.25s;
+}
+
+.layer-follow {
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+.layer-follow[aria-checked="true"] {
+  color: var(--ink);
+}
+
 .layer-cards {
   display: flex;
   flex-direction: column;
@@ -1479,7 +1522,8 @@
   .layer-body {
     grid-template-columns: 1fr;
   }
-  .tiles {
+  .tiles,
+  .layer-follow {
     display: none;
   }
   .layer-cards {

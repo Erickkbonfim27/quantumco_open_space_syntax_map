@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { QuantumcoIcon } from "../brand/QuantumcoIcon";
 import { Footer } from "../components/Footer";
 import { UserMenu } from "../components/UserMenu";
+import { CameraStore } from "../features/map/cameraStore";
 import { BasemapPicker, LayerToggles, MapTabs, MeasureSwitch, OPEN_LAYERS, RadiusSection } from "../features/map/MapPanels";
 import {
   DEFAULT_FLAGS,
@@ -66,6 +67,8 @@ export function WorkspaceMap() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const mapRef = useRef<MapViewHandle>(null);
+  // rotação e inclinação do mapa, para o painel de camadas acompanhar ("seguir mapa")
+  const [camera] = useState(() => new CameraStore());
 
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [data, setData] = useState<SnapshotData | null>(null);
@@ -593,6 +596,7 @@ export function WorkspaceMap() {
       <main className="ws-map">
         <MapView
           ref={mapRef}
+          camera={camera}
           data={mapData}
           measure={measure}
           radius={radius}
@@ -664,6 +668,7 @@ export function WorkspaceMap() {
             measure={measure}
             radius={radius}
             network={data.network}
+            camera={camera}
             onClose={() => setSelectedId(null)}
           />
         )}
