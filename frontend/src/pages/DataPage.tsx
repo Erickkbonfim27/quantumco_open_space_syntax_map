@@ -262,6 +262,31 @@ const SOURCES: Source[] = [
     where: ["Mapa público", "Polígonos (N5)"],
   },
   {
+    id: "overture",
+    name: "Edificações (Overture Maps)",
+    publisher: "Overture Maps Foundation · reúne OpenStreetMap, Microsoft ML Buildings e Google Open Buildings",
+    what: "A pegada no chão de cada edificação de Brusque. O OSM tem pouco mais de 700 prédios na cidade; os outros vêm de detecção por satélite feita pela Microsoft e pelo Google, já sem duplicatas.",
+    links: [
+      { label: "Tema buildings (Overture)", href: "https://docs.overturemaps.org/guides/buildings/" },
+      { label: "Atribuição e licenças", href: "https://docs.overturemaps.org/attribution/" },
+    ],
+    version: "Release 2026-10-21.0 (fixa: trocar de release é uma decisão registrada)",
+    license:
+      "ODbL 1.0 · © OpenStreetMap contributors, Overture Maps Foundation (Microsoft ML Buildings: ODbL; Google Open Buildings: CC BY 4.0)",
+    use: [
+      "No polígono: número de edificações (contadas pelo ponto interno da pegada, cada uma uma vez só), área no chão e taxa de ocupação.",
+      "Taxa de ocupação = área no chão ÷ área do polígono. A área do polígono inclui ruas e áreas livres.",
+      "No mapa: camada “Edificações” a partir do zoom 13, por baixo da malha sintática.",
+    ],
+    cautions: [
+      "Cerca de 99% das pegadas vêm de detecção por satélite: a forma é aproximada e prédios colados podem virar um só.",
+      "Altura e número de andares quase nunca são informados (8 prédios em Brusque); por isso não mostramos volume.",
+      "Descartamos pegadas com menos de 10 m², quase sempre ruído do modelo.",
+    ],
+    layers: ["edificacoes"],
+    where: ["Mapa público", "Polígonos (N7)"],
+  },
+  {
     id: "relevo",
     name: "Terrain Tiles",
     publisher: "AWS Open Data (Mapzen) · SRTM, USGS e outras",
@@ -296,8 +321,10 @@ const SOURCES: Source[] = [
 
 const NEXT_SOURCES: [string, string][] = [
   ["Bairros do IBGE 2022", "27 bairros como polígonos prontos para escolher."],
-  ["Empresas e obras", "CNPJ da Receita e Cadastro Nacional de Obras, localizados pelo CNEFE (só agregados)."],
-  ["Relevo fino e prédios", "MDT de 1 m do SIGSC (só estatísticas derivadas) e Google Open Buildings."],
+  ["Empresas e lugares", "CNPJ da Receita, localizado pelo CNEFE (só agregados), e lugares do Overture."],
+  ["Relevo fino", "Declividade e altitude a partir do MDT de 1 m do SIGSC (só estatísticas derivadas)."],
+  ["Verde, calor e expansão urbana", "NDVI do Sentinel-2, temperatura de superfície do Landsat e a série do MapBiomas desde 1985."],
+  ["A cidade na cheia", "Cenário que tira da rede os trechos em área inundável e recalcula a integração."],
   ["Pedido via LAI", "Lotes, zoneamento da LC 419/2024 e bairros oficiais da prefeitura, que não existem abertos."],
 ];
 
@@ -517,9 +544,9 @@ const GROUPS: Group[] = [
   },
   {
     id: "poligonos",
-    title: "Camadas do polígono (N1–N6)",
+    title: "Camadas do polígono (N1–N7)",
     intro:
-      "Ao desenhar uma área num cenário, o painel empilha seis camadas sobre ela. Dados por setor censitário entram pela fração dos domicílios do setor que cai dentro do polígono (interpolação dasimétrica com o CNEFE); só sem domicílio georreferenciado usamos a fração de área.",
+      "Ao desenhar uma área num cenário, o painel empilha sete camadas sobre ela. Dados por setor censitário entram pela fração dos domicílios do setor que cai dentro do polígono (interpolação dasimétrica com o CNEFE); só sem domicílio georreferenciado usamos a fração de área.",
     items: [
       {
         id: "n1",
@@ -611,6 +638,22 @@ const GROUPS: Group[] = [
         source: "SGB 2018–2019 e cartas IPT/SGB 2013",
         where: ["Polígonos"],
       },
+      {
+        id: "n7",
+        tag: "N7",
+        name: "Forma construída",
+        what: "As edificações dentro da área, pela pegada no chão.",
+        read: "Taxa de ocupação é a área no chão dividida pela área do polígono (ruas incluídas). A barra mostra de onde vem cada pegada: OSM ou detecção por satélite.",
+        unit: "Contagem, % e m².",
+        metrics: [
+          "Edificações (cada uma contada uma vez, pelo ponto interno da pegada)",
+          "Taxa de ocupação",
+          "Área no chão (recortada pelo polígono)",
+          "Parte detectada por satélite (Google, Microsoft) e parte mapeada no OSM",
+        ],
+        source: "Overture Maps, release 2026-10-21.0",
+        where: ["Polígonos"],
+      },
     ],
   },
   {
@@ -657,6 +700,16 @@ const GROUPS: Group[] = [
         source: "CNEFE 2022",
         where: ["Mapa público", "Polígonos"],
         legend: <Swatches items={[[OVERLAY_COLOR.escolas, "escola"]]} />,
+      },
+      {
+        id: "predios",
+        name: "Edificações",
+        what: "A pegada no chão de cada prédio. Aparece a partir do zoom 13, por baixo da malha sintática.",
+        read: "Clique num prédio para ver a área no chão, de onde veio (OSM ou satélite) e a confiança da detecção.",
+        unit: "Áreas (polígonos).",
+        source: "Overture Maps (OSM, Microsoft, Google)",
+        where: ["Mapa público", "Polígonos"],
+        legend: <Swatches items={[["rgba(var(--fg-rgb), 0.45)", "edificação"]]} />,
       },
       {
         id: "relevo",

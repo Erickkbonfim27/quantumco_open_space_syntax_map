@@ -134,11 +134,11 @@ export function PublicMap() {
           <div className="mini-card mini-wide">
             <div className="row-between muted small">
               <span>Recorte uma área da cidade</span>
-              <span className="mono">N1–N6</span>
+              <span className="mono">N1–N7</span>
             </div>
             <span className="small soft">
-              Desenhe polígonos e leia população, renda, entorno, equipamentos e risco junto da
-              sintaxe espacial.
+              Desenhe polígonos e leia população, renda, entorno, equipamentos, risco e edificações
+              junto da sintaxe espacial.
             </span>
             <Link to={polygonsTo} className="pill pill-green pill-sm ws-card-cta">
               {user ? "Abrir meus cenários" : "Criar conta grátis"}

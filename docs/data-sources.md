@@ -47,17 +47,23 @@ O perfil de cada polígono sai em `POST /api/v1/territory/polygon-profile`.
 | N4 Entorno urbano | IBGE Censo 2022: entorno dos domicílios (V05000–V05034) | idem; % dos domicílios em faces com calçada, iluminação, árvores, rampa, ponto de ônibus… | 186 setores pesquisados |
 | N5 Equipamentos e uso | IBGE CNEFE 2022 (espécie do endereço, coordenada nível ≤ 3) + CNES (Ministério da Saúde) | contagem de pontos | 65.659 endereços · 506 estabelecimentos de saúde |
 | N6 Risco | SGB: setores de risco geológico (2018–19) e cartas de suscetibilidade IPT/SGB (2013) | área recortada; pessoas em risco proporcionais à área do setor | 199 setores · 1.820 polígonos de suscetibilidade |
+| N7 Forma construída (fase B, 2026-11-06) | Overture Maps, tema buildings, release `2026-10-21.0` (fixo em `territory/infrastructure/overture.py`), lido pela biblioteca `overturemaps` no retângulo da grade de 30 m | contagem pelo ponto interno da pegada; área no chão recortada; taxa de ocupação = área no chão ÷ área do polígono | 94.366 edificações (Google 66.417 · Microsoft 27.214 · OSM 735); 2 descartadas < 10 m²; altura em 8 |
 
 Cuidados: o CNES traz telefone e e-mail de consultórios; guardamos só nome, tipo, SUS e coordenada.
 O CNEFE mostra obras "em construção" **em 2022**, não hoje.
+Edificações: licença do tema ODbL 1.0 (Microsoft ML Buildings: ODbL; Google Open Buildings: CC BY 4.0),
+crédito "© OpenStreetMap contributors, Overture Maps Foundation" no mapa e no painel. Guardamos a
+confiança da detecção (Google) para filtrar depois sem reimportar.
 
 ## Próximas fases
 
 - **B. Empresas e obras**: CNPJ da Receita (mensal; Brusque = município 8055 da Receita) e CNO
   (Cadastro Nacional de Obras), localizados pelo CEP + número cruzados com o CNEFE. Licença dos
   arquivos da Receita não confirmada; MEI traz nome e endereço do dono → publicar só agregado.
-- **C. Relevo e prédios**: MDT 1 m do SIGSC (só estatísticas derivadas) e Google Open Buildings v3
-  (tile S2 `94d`, CC BY 4.0 ou ODbL) / 2.5D Temporal (altura, 2016–2023).
+- **C. Relevo**: MDT 1 m do SIGSC (só estatísticas derivadas). Prédios já entraram pelo Overture
+  (acima); a altura do Google 2.5D Temporal fica de fora até confirmarmos acesso fora do Earth
+  Engine (uso comercial do GEE é pago).
+- Plano completo das fontes novas: `docs/specs/camadas-fase-b.md`.
 - Descartados: RAIS e CAGED (só município; a RAIS de estabelecimentos tem CEP, sem endereço),
   Google Places (os termos proíbem guardar, usar em mapa que não seja do Google e fazer
   ponto-em-polígono), luz noturna VIIRS (500 m, grossa demais), GTFS (Brusque não tem).
