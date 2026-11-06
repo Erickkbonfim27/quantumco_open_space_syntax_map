@@ -141,13 +141,21 @@ const ORDER: RadiusKey[] = ["400", "800", "1200", "2000", "n"];
 
 type ScopeKey = "caminhada" | "bairro" | "cidade" | "personalizado";
 const SCOPES: { key: ScopeKey; label: string; radii: RadiusKey[] | null; hint: string }[] = [
-  { key: "caminhada", label: "Caminhada", radii: ["400", "800"], hint: "400 e 800 m · só a região afetada · o mais rápido" },
-  { key: "bairro", label: "Bairro", radii: ["400", "800", "1200", "2000"], hint: "400 m a 2 km · só a região afetada · rápido" },
+  { key: "caminhada", label: "Caminhada", radii: ["400", "800"], hint: "400 e 800 m · recalcula até 1,6 km em volta das edições · o mais rápido" },
+  { key: "bairro", label: "Bairro", radii: ["400", "800", "1200", "2000"], hint: "400 m a 2 km · recalcula até 4 km em volta das edições · rápido" },
   { key: "cidade", label: "Cidade", radii: ORDER, hint: "todos os raios, inclusive n · a rede inteira · vários minutos" },
   { key: "personalizado", label: "Escolher", radii: null, hint: "marque os raios; com n, a rede inteira" },
 ];
 
 const radiusText = (key: string) => RADII.find((r) => r.key === key)?.label ?? key;
+
+/** Até onde um cálculo local muda valores: 2× o maior raio (um caminho que passa pela edição
+ * pode desviar por trechos até um raio além da origem). Com n, a rede inteira. */
+const reachText = (radii: readonly string[]) => {
+  if (radii.length === 0 || radii.includes("n")) return null;
+  const m = 2 * Math.max(...radii.map(Number));
+  return m >= 1000 ? `${(m / 1000).toLocaleString("pt-BR")} km` : `${m} m`;
+};
 
 /** Cálculo do cenário: pedido, posição na fila, etapas com tempos e resultado. */
 export function RunSection({ edits, run, offset, busy, error, measure, radius, view, resultReady, ...on }: RunSectionProps) {
@@ -268,7 +276,7 @@ export function RunSection({ edits, run, offset, busy, error, measure, radius, v
               <span className="muted-2 small">
                 Raios: {computed.map(radiusText).join(", ")} ·{" "}
                 {run.result.scope === "regiao"
-                  ? `só a região afetada (${(run.result.region_links ?? 0).toLocaleString("pt-BR")} trechos; o resto não muda)`
+                  ? `só até ${reachText(computed) ?? "?"} em volta das edições (${(run.result.region_links ?? 0).toLocaleString("pt-BR")} trechos; o resto não muda)`
                   : "rede inteira"}
               </span>
               <div className="segmented segmented-3 run-views" role="radiogroup" aria-label="O que mostrar no mapa">
@@ -316,7 +324,15 @@ export function RunSection({ edits, run, offset, busy, error, measure, radius, v
               ))}
             </div>
           )}
-          <span className="muted-2 small">{SCOPES.find((s) => s.key === scope)?.hint}</span>
+          <span className="muted-2 small">
+            {scope === "personalizado"
+              ? reachText(custom)
+                ? `recalcula até ${reachText(custom)} em volta das edições`
+                : chosen.length > 0
+                  ? "com n, a rede inteira · vários minutos"
+                  : SCOPES.find((s) => s.key === scope)?.hint
+              : SCOPES.find((s) => s.key === scope)?.hint}
+          </span>
         </div>
       )}
 
