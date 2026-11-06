@@ -3,16 +3,21 @@
 Cada worker processa um cálculo por vez num processo filho ("work horse"): se o motor travar
 ou estourar a memória, só aquele cálculo morre, o pedido é marcado como falho no banco e o
 worker segue para o próximo.
+
+No macOS o fork é inseguro (PROJ/sqlite/os_log herdados derrubam o filho com SIGSEGV): lá o
+worker roda um cálculo por vez no próprio processo, sem pool nem work horse. Só para teste
+local; a VPS (Linux) segue com fork.
 """
 
 from __future__ import annotations
 
 import logging
+import sys
 import time
 from typing import Any
 from uuid import UUID
 
-from rq import Worker
+from rq import SimpleWorker, Worker
 from rq.job import Job
 from rq.queue import Queue
 from rq.worker_pool import WorkerPool
@@ -22,6 +27,8 @@ from quantumco.platform.postgres import connect
 from quantumco.scenarios.infrastructure.redis_queue import RedisRunQueue, redis_client
 
 log = logging.getLogger(__name__)
+
+FORK_SAFE = sys.platform != "darwin"
 
 KILLED = "O cálculo foi interrompido (falta de memória ou tempo esgotado). Tente com menos edições."
 
@@ -94,7 +101,8 @@ def start_data(settings: Settings, *, burst: bool = False) -> None:
     queue = f"{DATA_QUEUE}-homolog" if settings.use_homolog else DATA_QUEUE
     log.info("fila '%s': %d na espera; worker de dados no ar", queue,
              Queue(queue, connection=redis).count)  # fmt: skip
-    Worker([queue], connection=redis).work(burst=burst, logging_level=settings.log_level)
+    worker_class = Worker if FORK_SAFE else SimpleWorker
+    worker_class([queue], connection=redis).work(burst=burst, logging_level=settings.log_level)
 
 
 def start(settings: Settings, workers: int, *, burst: bool = False) -> None:
@@ -107,6 +115,10 @@ def start(settings: Settings, workers: int, *, burst: bool = False) -> None:
     recover(settings)
     queue = settings.scenario_queue
     waiting = Queue(queue, connection=redis).count
+    if not FORK_SAFE:
+        log.info("fila '%s': %d na espera; macOS: 1 worker sem fork (teste local)", queue, waiting)
+        SimpleWorker([queue], connection=redis).work(burst=burst, logging_level=settings.log_level)
+        return
     log.info("fila '%s': %d na espera; subindo %d worker(s)", queue, waiting, workers)
     # importa o motor antes do fork: cada cálculo começa sem pagar o import do cityseer
     t = time.perf_counter()
