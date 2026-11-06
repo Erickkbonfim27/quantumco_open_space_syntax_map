@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import time
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
-from psycopg import errors
+from psycopg import Connection, errors
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
@@ -19,8 +21,15 @@ from quantumco.territory.application.ports import (
     Ring,
 )
 from quantumco.territory.domain.addresses import AddressHit
-from quantumco.territory.domain.profile import TractOverlap, ZoneOverlap
-from quantumco.territory.domain.records import LayerData
+from quantumco.territory.domain.grid import BRUSQUE_GRID, BUFFER_M
+from quantumco.territory.domain.profile import (
+    BUILDINGS_LAYER,
+    BuildingStats,
+    GridStat,
+    TractOverlap,
+    ZoneOverlap,
+)
+from quantumco.territory.domain.records import GridKind, GridLayer, LayerData
 
 log = logging.getLogger(__name__)
 
@@ -112,6 +121,11 @@ class PostgisTerritoryRepository:
                             (a.street, a.number, a.locality, a.cep, a.units, a.search_key,
                              a.lon, a.lat)
                         )  # fmt: skip
+            if data.buildings:
+                _replace_buildings(conn, data)
+            meta = dict(data.meta)
+            if data.grid is not None:
+                meta |= _replace_grid(conn, data.layer, data.grid)
             conn.execute(
                 "insert into territory.layers "
                 "(layer, source, source_url, license, rows, fetched_at, meta) "
@@ -120,7 +134,7 @@ class PostgisTerritoryRepository:
                 "license = excluded.license, rows = excluded.rows, "
                 "fetched_at = excluded.fetched_at, meta = excluded.meta",
                 (data.layer, data.source, data.source_url, data.license, data.rows, fetched_at,
-                 Jsonb(dict(data.meta))),
+                 Jsonb(meta)),
             )  # fmt: skip
         conn_note = (
             "setores"
@@ -129,12 +143,107 @@ class PostgisTerritoryRepository:
             if data.zones
             else "endereços"
             if data.addresses
+            else "edificações"
+            if data.buildings
+            else "células"
+            if data.grid is not None
             else "pontos"
         )
         log.info("  %s: %d %s substituídos", data.layer, data.rows, conn_note)
 
     def layers(self) -> Sequence[Mapping[str, Any]]:
         return _layers(self._pool)
+
+
+def _replace_buildings(conn: Connection[Any], data: LayerData) -> None:
+    conn.execute("delete from territory.buildings")
+    conn.execute(
+        "create temp table stage_b (building_id text, source text, height_m real, "
+        "floors smallint, class text, g text) on commit drop"
+    )
+    with conn.cursor().copy(
+        "copy stage_b (building_id, source, height_m, floors, class, g) from stdin"
+    ) as copy:
+        for b in data.buildings:
+            copy.write_row(
+                (b.building_id, b.source, b.height_m, b.floors, b.klass, json.dumps(b.geometry))
+            )
+    conn.execute(
+        "insert into territory.buildings "
+        "(building_id, source, height_m, floors, class, area_m2, geom) "
+        "select building_id, source, height_m, floors, class, ST_Area(geom), geom from "
+        f"(select building_id, source, height_m, floors, class, {_GEOM} geom from stage_b) s "
+        "where not ST_IsEmpty(geom) on conflict (building_id) do nothing"
+    )
+
+
+# Células da grade: só as que ficam a até BUFFER_M do município (união dos setores do IBGE).
+# O município é subdividido e indexado para o teste ponto-em-polígono não varrer a união inteira.
+_GRID_AREA = (
+    "create temp table grid_area on commit drop as "
+    f"select ST_Subdivide(ST_Buffer(ST_Union(geom), {BUFFER_M}), 128) g from territory.tracts"
+)
+_GRID_CELLS = f"""
+insert into territory.grid (cell, geom)
+select p.cell, p.geom
+from (
+    select r * {BRUSQUE_GRID.ncols} + c cell,
+           ST_SetSRID(ST_MakePoint({BRUSQUE_GRID.west} + (c + 0.5) * {BRUSQUE_GRID.size},
+                                   {BRUSQUE_GRID.north} - (r + 0.5) * {BRUSQUE_GRID.size}),
+                      {SRID}) geom
+    from generate_series(0, {BRUSQUE_GRID.nrows - 1}) r,
+         generate_series(0, {BRUSQUE_GRID.ncols - 1}) c
+) p
+where exists (select 1 from grid_area a where ST_Intersects(a.g, p.geom))
+on conflict (cell) do nothing
+"""
+
+
+def _ensure_grid(conn: Connection[Any]) -> None:
+    if conn.execute("select 1 from territory.grid limit 1").fetchone() is not None:
+        return
+    if conn.execute("select 1 from territory.tracts limit 1").fetchone() is None:
+        raise RuntimeError(
+            "a grade de 30 m é recortada pelo município: importe os setores antes "
+            "(`quantumco territory import --only ibge-setores`)"
+        )
+    started = time.perf_counter()
+    conn.execute(_GRID_AREA)
+    conn.execute("create index on grid_area using gist (g)")
+    conn.execute(_GRID_CELLS)
+    (cells,) = conn.execute("select count(*) from territory.grid").fetchone()  # type: ignore[misc]
+    log.info("  grade de 30 m criada: %d células em %.1fs", cells, time.perf_counter() - started)
+
+
+def _replace_grid(conn: Connection[Any], layer: str, grid: GridLayer) -> dict[str, Any]:
+    """Grava os valores de uma camada na grade e devolve o que vai para `territory.layers.meta`."""
+    _ensure_grid(conn)
+    conn.execute("delete from territory.grid_values where layer = %s", (layer,))
+    conn.execute("create temp table stage_g (cell bigint, value real) on commit drop")
+    with conn.cursor().copy("copy stage_g (cell, value) from stdin") as copy:
+        for cell, value in grid.values.items():
+            if math.isfinite(value):
+                copy.write_row((cell, value))
+    inserted = conn.execute(
+        "insert into territory.grid_values (layer, cell, value) "
+        "select %s, s.cell, s.value from stage_g s join territory.grid g on g.cell = s.cell",
+        (layer,),
+    ).rowcount
+    outside = len(grid.values) - inserted
+    if outside:
+        log.info("  %s: %d células fora do município (ou sem valor) descartadas", layer, outside)
+    if grid.image is None:
+        conn.execute("delete from territory.images where layer = %s", (layer,))
+    else:
+        img = grid.image
+        conn.execute(
+            "insert into territory.images (layer, png, bounds, legend) values (%s, %s, %s, %s) "
+            "on conflict (layer) do update set png = excluded.png, bounds = excluded.bounds, "
+            "legend = excluded.legend",
+            (layer, img.png, list(img.bounds),
+             Jsonb([{"label": i.label, "color": i.color} for i in img.legend])),
+        )  # fmt: skip
+    return {"grid_kind": grid.kind.value, "grid_unit": grid.unit, "grid_cells": inserted}
 
 
 def _layers(pool: ConnectionPool) -> list[dict[str, Any]]:
@@ -227,6 +336,79 @@ where z.layer in ('risco', 'suscet_inundacao')
 """
 
 
+# Grade de 30 m: centros de célula dentro do polígono.
+_GRID_INSIDE = f"""{_POLY},
+inside as (select g.cell from territory.grid g, poly where ST_Intersects(g.geom, poly.g))"""
+
+_GRID_CONTINUOUS = f"""{_GRID_INSIDE}
+select v.layer, count(*), avg(v.value), min(v.value), max(v.value),
+       percentile_cont(array[0.1, 0.5, 0.9]) within group (order by v.value)
+from inside i join territory.grid_values v on v.cell = i.cell
+where v.layer = any(%(layers)s)
+group by v.layer
+"""
+
+_GRID_CATEGORICAL = f"""{_GRID_INSIDE}
+select v.layer, v.value, count(*)
+from inside i join territory.grid_values v on v.cell = i.cell
+where v.layer = any(%(layers)s)
+group by v.layer, v.value
+"""
+
+# Contagem e altura pelo ponto interno da pegada; área pela pegada recortada.
+_BUILDINGS = f"""{_POLY},
+b as (
+    select b.source, b.height_m, ST_Area(ST_Intersection(b.geom, poly.g)) a,
+           ST_Intersects(ST_PointOnSurface(b.geom), poly.g) inside
+    from territory.buildings b, poly
+    where ST_Intersects(b.geom, poly.g)
+)
+select source, count(*) filter (where inside), coalesce(sum(a), 0),
+       count(height_m) filter (where inside), coalesce(sum(height_m) filter (where inside), 0)
+from b group by source
+"""
+
+_BUILDING_TILE = f"""
+select coalesce(ST_AsMVT(t, '{BUILDINGS_LAYER}', 4096, 'geom'), '')
+from (
+    select b.source, b.height_m, b.floors,
+           ST_AsMVTGeom(ST_Transform(b.geom, 3857), ST_TileEnvelope(%(z)s, %(x)s, %(y)s),
+                        4096, 64, true) geom
+    from territory.buildings b
+    where b.geom && ST_Transform(
+        ST_TileEnvelope(%(z)s, %(x)s, %(y)s, margin => 64.0 / 4096), {SRID})
+) t
+where t.geom is not null
+"""
+
+
+def _grid_stats(
+    conn: Connection[Any], params: dict[str, Any], kinds: Mapping[str, str]
+) -> list[GridStat]:
+    continuous = [k for k, v in kinds.items() if v == GridKind.CONTINUOUS.value]
+    categorical = [k for k, v in kinds.items() if v == GridKind.CATEGORICAL.value]
+    stats: list[GridStat] = []
+    if continuous:
+        for r in conn.execute(_GRID_CONTINUOUS, {**params, "layers": continuous}).fetchall():
+            p10, p50, p90 = r[5] or (None, None, None)
+            stats.append(
+                GridStat(
+                    r[0], GridKind.CONTINUOUS.value, int(r[1]), r[2], r[3], r[4], p10, p50, p90
+                )
+            )
+    if categorical:
+        hist: dict[str, dict[float, int]] = {}
+        for layer, value, n in conn.execute(
+            _GRID_CATEGORICAL, {**params, "layers": categorical}
+        ).fetchall():
+            hist.setdefault(layer, {})[float(value)] = int(n)
+        stats.extend(
+            GridStat(layer, GridKind.CATEGORICAL.value, sum(h.values()), histogram=h)
+            for layer, h in hist.items()
+        )
+    return sorted(stats, key=lambda s: s.layer)
+
+
 _FC = (
     "select json_build_object('type', 'FeatureCollection', 'features', "
     "coalesce(json_agg(f.feature), '[]'))::text from ({}) f"
@@ -288,15 +470,58 @@ class PostgisTerritoryReader:
     def layers(self) -> Sequence[Mapping[str, Any]]:
         return _layers(self._pool)
 
+    def images(self) -> Sequence[Mapping[str, Any]]:
+        with self._pool.connection() as conn:
+            try:
+                rows = conn.execute(
+                    "select i.layer, i.bounds, i.legend, l.fetched_at from territory.images i "
+                    "left join territory.layers l on l.layer = i.layer order by i.layer"
+                ).fetchall()
+            except errors.UndefinedTable:
+                return []
+        return [
+            {"layer": r[0], "bounds": list(r[1]), "legend": r[2],
+             "version": r[3].isoformat() if r[3] else None}
+            for r in rows
+        ]  # fmt: skip
+
+    def image(self, layer: str) -> bytes | None:
+        with self._pool.connection() as conn:
+            try:
+                row = conn.execute(
+                    "select png from territory.images where layer = %s", (layer,)
+                ).fetchone()
+            except errors.UndefinedTable:
+                return None
+        return bytes(row[0]) if row else None
+
+    def building_tile(self, z: int, x: int, y: int) -> bytes:
+        with self._pool.connection() as conn:
+            try:
+                row = conn.execute(_BUILDING_TILE, {"z": z, "x": x, "y": y}).fetchone()
+            except errors.UndefinedTable:
+                return b""
+        return bytes(row[0]) if row and row[0] else b""
+
     def overlaps(self, ring: Ring) -> PolygonOverlaps | None:
         closed = list(ring) if ring[0] == ring[-1] else [*ring, ring[0]]
         params = {"g": json.dumps({"type": "Polygon", "coordinates": [closed]})}
         with self._pool.connection() as conn:
             try:
-                if conn.execute("select 1 from territory.layers limit 1").fetchone() is None:
-                    return None
+                imported = conn.execute(
+                    "select layer, meta ->> 'grid_kind' from territory.layers"
+                ).fetchall()
             except errors.UndefinedTable:
                 return None
+            if not imported:
+                return None
+            grid_kinds = {r[0]: r[1] for r in imported if r[1]}
+            grid_stats = _grid_stats(conn, params, grid_kinds) if grid_kinds else []
+            building_rows = (
+                conn.execute(_BUILDINGS, params).fetchall()
+                if any(r[0] == BUILDINGS_LAYER for r in imported)
+                else None
+            )
             (area_m2,) = conn.execute(f"{_POLY} select ST_Area(g) from poly", params).fetchone()  # type: ignore[misc]
             tracts = conn.execute(_TRACTS, params).fetchall()
             zones = conn.execute(_ZONES, params).fetchall()
@@ -331,6 +556,15 @@ class PostgisTerritoryReader:
             named_places=[NamedPlace(r[0], r[1], r[2]) for r in named],
             points=[(round(float(r[0]), 6), round(float(r[1]), 6), r[2]) for r in points],
             zone_shapes=[{"layer": r[0], "category": r[1], "geometry": r[2]} for r in shapes],
+            grid=grid_stats,
+            buildings=(
+                None
+                if building_rows is None
+                else [
+                    BuildingStats(r[0], int(r[1]), float(r[2]), int(r[3]), float(r[4]))
+                    for r in building_rows
+                ]
+            ),
         )
 
 

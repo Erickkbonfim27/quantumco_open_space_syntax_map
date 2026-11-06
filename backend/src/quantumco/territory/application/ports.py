@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
-from quantumco.territory.domain.profile import TractOverlap, ZoneOverlap
+from quantumco.territory.domain.profile import BuildingStats, GridStat, TractOverlap, ZoneOverlap
 from quantumco.territory.domain.records import LayerData
 
 Ring = Sequence[tuple[float, float]]
@@ -54,6 +54,9 @@ class PolygonOverlaps:
     # recortadas pelo polígono, em GeoJSON WGS84
     points: Sequence[tuple[float, float, str]] = field(default_factory=tuple)
     zone_shapes: Sequence[Mapping[str, Any]] = field(default_factory=tuple)
+    # fase B: camadas da grade de 30 m e edificações (None = camada não importada)
+    grid: Sequence[GridStat] = field(default_factory=tuple)
+    buildings: Sequence[BuildingStats] | None = None
 
 
 class TerritoryReader(Protocol):
@@ -65,4 +68,16 @@ class TerritoryReader(Protocol):
 
     def map_layer(self, name: str) -> bytes | None:
         """FeatureCollection (GeoJSON WGS84) de uma camada para o mapa da cidade inteira."""
+        ...
+
+    def images(self) -> Sequence[Mapping[str, Any]]:
+        """Imagens prontas para o mapa: camada, limites (WGS84) e legenda."""
+        ...
+
+    def image(self, layer: str) -> bytes | None:
+        """PNG de uma camada da grade; None se não houver."""
+        ...
+
+    def building_tile(self, z: int, x: int, y: int) -> bytes:
+        """Tile vetorial (MVT) das edificações; vazio quando não há prédio no tile."""
         ...

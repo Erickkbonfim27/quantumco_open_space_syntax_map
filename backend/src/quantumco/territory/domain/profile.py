@@ -186,3 +186,105 @@ def susceptibility(overlaps: Iterable[ZoneOverlap], area_m2: float) -> dict[str,
         layer: {k: round(min(v, 1.0), 4) for k, v in classes.items()}
         for layer, classes in by_layer.items()
     }
+
+
+# ------------------------------------------------------------------ fase B: grade e edificações
+
+BUILDINGS_LAYER = "edificacoes"
+
+
+@dataclass(frozen=True, slots=True)
+class GridStat:
+    """Resumo de uma camada da grade de 30 m no polígono (centros de célula dentro dele).
+
+    Contínua: média e percentis. Categórica: contagem de células por classe (`histogram`).
+    """
+
+    layer: str
+    kind: str  # GridKind.value
+    cells: int
+    mean: float | None = None
+    minimum: float | None = None
+    maximum: float | None = None
+    p10: float | None = None
+    p50: float | None = None
+    p90: float | None = None
+    histogram: Mapping[float, int] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BuildingStats:
+    """Edificações no polígono, de um conjunto de origem.
+
+    `count` e a altura usam o ponto interno da pegada (cada prédio conta uma vez só);
+    `footprint_m2` é a pegada recortada pelo polígono (a taxa de ocupação nunca passa de 100%).
+    """
+
+    source: str
+    count: int
+    footprint_m2: float
+    with_height: int
+    height_sum_m: float
+
+
+def _r(value: float | None, digits: int) -> float | None:
+    return None if value is None else round(value, digits)
+
+
+def _class_key(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else str(value)
+
+
+def grid(stats: Iterable[GridStat], area_m2: float, cell_area_m2: float) -> dict[str, Any]:
+    """Uma entrada por camada da grade com dado no polígono.
+
+    `coverage` = área das células amostradas ÷ área do polígono: perto de 1 num polígono grande. Num
+    polígono menor que uma célula pode não haver nenhum centro dentro, e a camada não aparece.
+    """
+    out: dict[str, Any] = {}
+    for s in stats:
+        if s.cells <= 0:
+            continue
+        entry: dict[str, Any] = {
+            "kind": s.kind,
+            "cells": s.cells,
+            "coverage": (
+                round(min(s.cells * cell_area_m2 / area_m2, 1.0), 4) if area_m2 > 0 else None
+            ),
+        }
+        if s.histogram is not None:
+            total = sum(s.histogram.values())
+            entry["shares"] = {
+                _class_key(k): round(v / total, 4)
+                for k, v in sorted(s.histogram.items(), key=lambda kv: (-kv[1], kv[0]))
+            } if total else {}  # fmt: skip
+        else:
+            entry |= {
+                "mean": _r(s.mean, 4),
+                "min": _r(s.minimum, 4),
+                "max": _r(s.maximum, 4),
+                "p10": _r(s.p10, 4),
+                "p50": _r(s.p50, 4),
+                "p90": _r(s.p90, 4),
+            }
+        out[s.layer] = entry
+    return out
+
+
+def buildings(stats: Sequence[BuildingStats] | None, area_m2: float) -> dict[str, Any] | None:
+    """None quando a camada de edificações não foi importada (diferente de "nenhum prédio")."""
+    if stats is None:
+        return None
+    count = sum(s.count for s in stats)
+    footprint = sum(s.footprint_m2 for s in stats)
+    with_height = sum(s.with_height for s in stats)
+    height_sum = sum(s.height_sum_m for s in stats)
+    return {
+        "count": count,
+        "footprint_m2": round(footprint),
+        # taxa de ocupação: pegada construída ÷ área do polígono (inclui ruas e áreas livres)
+        "coverage_ratio": round(min(footprint / area_m2, 1.0), 4) if area_m2 > 0 else None,
+        "with_height_share": round(with_height / count, 4) if count else None,
+        "mean_height_m": round(height_sum / with_height, 1) if with_height else None,
+        "by_source": {s.source: s.count for s in sorted(stats, key=lambda s: -s.count) if s.count},
+    }

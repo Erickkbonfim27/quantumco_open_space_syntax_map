@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from quantumco.territory.application.queries import (
     GetPolygonProfile,
+    InvalidTileError,
     SearchAddresses,
     UnknownLayerError,
 )
@@ -62,6 +63,37 @@ def territory_router(
         return Response(
             content=data,
             media_type="application/geo+json",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
+    @router.get("/territory/images")
+    def images() -> list[dict[str, Any]]:
+        """Camadas da grade de 30 m prontas para o mapa (fonte `image` do MapLibre)."""
+        return [
+            {**dict(img), "url": f"territory/images/{img['layer']}.png"} for img in profile.images()
+        ]
+
+    @router.get("/territory/images/{layer}.png")
+    def image(layer: str) -> Response:
+        try:
+            png = profile.image(layer)
+        except UnknownLayerError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        if png is None:
+            raise HTTPException(status_code=404, detail="imagem não importada")
+        return Response(
+            content=png, media_type="image/png", headers={"Cache-Control": "public, max-age=3600"}
+        )
+
+    @router.get("/territory/tiles/buildings/{z}/{x}/{y}.mvt")
+    def building_tile(z: int, x: int, y: int) -> Response:
+        try:
+            tile = profile.building_tile(z, x, y)
+        except InvalidTileError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return Response(
+            content=tile,
+            media_type="application/vnd.mapbox-vector-tile",
             headers={"Cache-Control": "public, max-age=3600"},
         )
 

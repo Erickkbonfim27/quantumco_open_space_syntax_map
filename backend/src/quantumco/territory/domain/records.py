@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
 
 GeoJSON = Mapping[str, Any]
@@ -58,6 +59,55 @@ class Address:
 
 
 @dataclass(frozen=True, slots=True)
+class Building:
+    """Edificação (Overture buildings): pegada no chão e, quando houver, altura e andares."""
+
+    building_id: str
+    source: str  # conjunto de origem: OpenStreetMap, Microsoft ML Buildings, Google Open Buildings…
+    geometry: GeoJSON
+    height_m: float | None = None
+    floors: int | None = None
+    klass: str | None = None
+
+
+class GridKind(StrEnum):
+    CONTINUOUS = "continuous"  # declividade, NDVI, calor: média e percentis no polígono
+    CATEGORICAL = "categorical"  # classe do MapBiomas: fração da área por classe
+
+
+@dataclass(frozen=True, slots=True)
+class LegendItem:
+    label: str
+    color: str  # "#RRGGBB"
+
+
+@dataclass(frozen=True, slots=True)
+class RasterImage:
+    """PNG pronto para o mapa (fonte `image` do MapLibre), com limites em WGS84."""
+
+    png: bytes
+    bounds: tuple[float, float, float, float]  # oeste, sul, leste, norte
+    legend: Sequence[LegendItem] = ()
+
+    def __post_init__(self) -> None:
+        west, south, east, north = self.bounds
+        if not (west < east and south < north):
+            raise ValueError("limites da imagem invertidos")
+        if not self.png.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("a imagem precisa ser PNG")
+
+
+@dataclass(frozen=True, slots=True)
+class GridLayer:
+    """Uma camada raster resumida na grade fixa de 30 m (territory/domain/grid.py)."""
+
+    kind: GridKind
+    values: Mapping[int, float]  # id da célula → valor (células sem dado ficam de fora)
+    unit: str = ""
+    image: RasterImage | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class LayerData:
     """Uma camada inteira, pronta para substituir a anterior de mesmo nome."""
 
@@ -69,8 +119,18 @@ class LayerData:
     zones: Sequence[Zone] = ()
     places: Sequence[Place] = ()
     addresses: Sequence[Address] = ()
+    buildings: Sequence[Building] = ()
+    grid: GridLayer | None = None
     meta: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def rows(self) -> int:
-        return len(self.tracts) + len(self.zones) + len(self.places) + len(self.addresses)
+        grid = len(self.grid.values) if self.grid else 0
+        return (
+            len(self.tracts)
+            + len(self.zones)
+            + len(self.places)
+            + len(self.addresses)
+            + len(self.buildings)
+            + grid
+        )

@@ -81,12 +81,12 @@ def database() -> str:
         assert name is not None
         if "test" not in str(name[0]):
             pytest.skip(f"banco {name[0]!r} não parece de teste; recuso recriar schemas")
-        conn.execute(
-            "drop schema if exists road_network cascade; drop schema if exists syntax_analysis "
-            "cascade; drop table if exists public.schema_migrations"
-        )
+        # todos os schemas da aplicação: as migrações recriam tudo do zero
+        for schema in ("territory", "scenarios", "identity", "syntax_analysis", "road_network"):
+            conn.execute(f"drop schema if exists {schema} cascade")
+        conn.execute("drop table if exists public.schema_migrations")
         conn.commit()
-    assert migrate(URL) == ["001_init"]
+    assert migrate(URL)[0] == "001_init"
     assert migrate(URL) == []  # idempotente
     return URL
 

@@ -33,9 +33,11 @@ from quantumco.scenarios.domain.workspace import Workspace
 from quantumco.syntax_analysis.application.queries import GetPolygonStats
 from quantumco.territory.application.ports import NamedPlace, PlaceCount, PolygonOverlaps
 from quantumco.territory.application.queries import GetPolygonProfile
-from quantumco.territory.domain.profile import TractOverlap, ZoneOverlap
+from quantumco.territory.domain.profile import BuildingStats, GridStat, TractOverlap, ZoneOverlap
 
 from .support import FixedClock
+
+TINY_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 
 
 class PlainHasher:
@@ -352,12 +354,27 @@ class TerritoryReader:
 
     def __init__(self, empty: bool = False) -> None:
         self._empty = empty
+        self.tiles: list[tuple[int, int, int]] = []
 
     def layers(self) -> list[Mapping[str, Any]]:
         return [] if self._empty else [{"layer": "setores", "rows": 1, "source": "IBGE"}]
 
     def map_layer(self, name: str) -> bytes | None:
         return None if self._empty else b'{"type":"FeatureCollection","features":[]}'
+
+    def images(self) -> list[Mapping[str, Any]]:
+        if self._empty:
+            return []
+        legend = [{"label": "> 30%", "color": "#FF6B5E"}]
+        return [{"layer": "declividade", "bounds": [-49.1, -27.3, -48.7, -26.9],
+                 "legend": legend, "version": "2026-11-06T00:00:00+00:00"}]  # fmt: skip
+
+    def image(self, layer: str) -> bytes | None:
+        return TINY_PNG if not self._empty and layer == "declividade" else None
+
+    def building_tile(self, z: int, x: int, y: int) -> bytes:
+        self.tiles.append((z, x, y))
+        return b"" if self._empty else b"\x1a\x02mvt"
 
     def overlaps(self, ring: Sequence[tuple[float, float]]) -> PolygonOverlaps | None:
         if self._empty:
@@ -380,6 +397,24 @@ class TerritoryReader:
                 PlaceCount("cnes", "hospital", 1, 1),
             ],
             named_places=[NamedPlace("cnes", "hospital", "Hospital Azambuja")],
+            grid=[
+                GridStat(
+                    "declividade",
+                    "continuous",
+                    1000,
+                    mean=12.5,
+                    minimum=0.0,
+                    maximum=48.0,
+                    p10=1.0,
+                    p50=10.0,
+                    p90=31.0,
+                ),
+                GridStat("mb_classe", "categorical", 1000, histogram={24.0: 700, 3.0: 300}),
+            ],
+            buildings=[
+                BuildingStats("OpenStreetMap", 40, 30_000, 10, 65.0),
+                BuildingStats("Microsoft ML Buildings", 160, 90_000, 0, 0.0),
+            ],
         )
 
 

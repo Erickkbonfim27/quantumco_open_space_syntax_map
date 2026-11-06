@@ -1,6 +1,7 @@
 # Spec — Camadas territoriais, fase B (10 fontes abertas + 3 análises)
 
-Versão 0.1 · 2026-11-05 · status: **proposta** (nada implementado)
+Versão 0.2 · 2026-11-06 · status: **em implementação** (etapa 0 pronta: migração 009 aplicada no
+banco principal em 2026-11-06; backend ainda sem deploy)
 
 Origem: análise do acervo `erickkbonfim-portifolio/documentos/search` (fontes, lacunas e concorrência)
 cruzado com o que o mapa já tem (`docs/data-sources.md`). Esta spec junta numa só as fases B e C
@@ -64,7 +65,7 @@ vêm por download direto ou STAC aberto.
 ### 4.1 Grade de 30 m para dados raster
 
 MDT, MapBiomas, Sentinel e Landsat viram valores numa **grade fixa de 30 m** em EPSG:31982, alinhada a
-múltiplos de 30 e cobrindo a bbox do município com 1 km de folga (~350 mil células). Motivos:
+múltiplos de 30 e cobrindo a bbox do município com 1 km de folga (429.516 células, medido). Motivos:
 
 - é um só padrão de consulta no polígono (pontos de centro dentro do polígono), sem depender da
   extensão `postgis_raster`;
@@ -72,29 +73,16 @@ múltiplos de 30 e cobrindo a bbox do município com 1 km de folga (~350 mil cé
   isso resolve de quebra a licença do MDT;
 - a importação de uma camada substitui só as linhas dela, como já acontece hoje.
 
-```sql
--- migração 007_territory_grid.sql
-create table territory.grid (
-    cell  bigint primary key,                   -- linha * ncols + coluna
-    geom  geometry(Point, 31982) not null       -- centro da célula
-);
-create index grid_geom on territory.grid using gist (geom);
+Tabelas `territory.grid`, `territory.grid_values` e `territory.images` na migração
+`009_territory_grid_buildings.sql` (as 005–008 já estavam ocupadas). A grade em si está em
+`territory/domain/grid.py` (`BRUSQUE_GRID`):
 
-create table territory.grid_values (
-    layer  text   not null,                     -- ex.: declividade, ndvi, lst, mb_classe, mb_ano_urbano
-    cell   bigint not null references territory.grid (cell),
-    value  real   not null,
-    primary key (layer, cell)
-);
+- origem 694.590 E / 7.013.010 N, 854 × 1.012 células (864.248 no retângulo);
+- linha 0 no norte e id = linha × colunas + coluna;
+- só as células a até 1 km da união dos setores do IBGE são gravadas, na primeira importação de uma
+  camada raster.
 
--- imagem pronta para o mapa (PNG colorido, gerado na importação)
-create table territory.images (
-    layer   text primary key,
-    png     bytea not null,
-    bounds  double precision[4] not null,       -- oeste, sul, leste, norte (WGS84)
-    legend  jsonb not null
-);
-```
+**Mudar a grade exige migração.**
 
 - Domínio: `territory/domain/records.py` ganha `GridLayer(layer, values: Mapping[int, float], image)`.
   `LayerData` ganha o campo `grid: GridLayer | None`.
@@ -405,7 +393,7 @@ Fica registrada aqui porque depende do F2.
 
 | Etapa | Entrega | Pronto quando |
 |---|---|---|
-| **0. Base** | grade de 30 m, `images`, `buildings`, rotas novas, pilha N1–N7 vazia | migração aplicada na VPS; testes de db verdes; import-linter verde |
+| **0. Base** | grade de 30 m, `images`, `buildings`, rotas novas (o N7 do painel entra na etapa 1, com dado: não mostramos nível vazio) | migração aplicada na VPS; testes de db verdes; import-linter verde |
 | **1. Forma e uso** | F1 prédios, F2 CNPJ + Places, F10 Censo | perfil do polígono com N7 e empresas; geocódigo ≥ 80%; mapa de prédios e densidade |
 | **2. Cheia** | F3a histórico, A1 v1 (zonas do SGB) | o cenário "A cidade na cheia" roda pela fila e devolve as contagens |
 | **3. Relevo e 15 min** | F4 MDT, F5 INEP, A2 | bloco "15 minutos" no N5, com a variante de declividade |
@@ -422,7 +410,8 @@ Cada etapa:
 
 | Item | Tamanho | Observação |
 |---|---|---|
-| Grade (350 mil células) × ~9 camadas | ~3 milhões de linhas, ~150 MB | cabe no PostGIS da VPS |
+| Grade (429.516 células) | 62 MB (tabela + índice); criada em ~16 s na 1ª camada raster | medido em 2026-11-06 com os 206 setores reais |
+| Valores da grade × ~9 camadas | ~51 MB por camada → ~460 MB | medido; se apertar, guardar a camada como `smallint` ou em tabela larga |
 | Prédios | dezenas de milhares | depende do F1 |
 | Download do CNPJ | ~5 GB por mês, lido em fluxo | só na máquina que importa, não no servidor da API |
 | MDT do SIGSC | ~280 km² a 1 m | processado em blocos; só o derivado sobe |

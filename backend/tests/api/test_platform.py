@@ -142,3 +142,31 @@ def test_territory_map_layers() -> None:
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("application/geo+json")
     assert c.get("/api/v1/territory/map/lotes").status_code == 404
+
+
+def test_territory_profile_has_phase_b_blocks() -> None:
+    body = client().post("/api/v1/territory/polygon-profile", json={"coordinates": RING}).json()
+    assert body["buildings"]["count"] == 200
+    assert body["buildings"]["coverage_ratio"] == 0.12
+    assert body["grid"]["declividade"]["p90"] == 31.0
+    assert body["grid"]["mb_classe"]["shares"] == {"24": 0.7, "3": 0.3}
+
+
+def test_territory_images_and_building_tiles() -> None:
+    c = client()
+    [img] = c.get("/api/v1/territory/images").json()
+    assert img["url"] == "territory/images/declividade.png"
+    assert img["bounds"] == [-49.1, -27.3, -48.7, -26.9]
+    r = c.get("/api/v1/" + img["url"])
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+    assert r.headers["cache-control"] == "public, max-age=3600"
+    assert c.get("/api/v1/territory/images/ndvi.png").status_code == 404
+    assert c.get("/api/v1/territory/images/NDVI.png").status_code == 404
+    tile = c.get("/api/v1/territory/tiles/buildings/14/6000/9000.mvt")
+    assert tile.status_code == 200
+    assert tile.headers["content-type"] == "application/vnd.mapbox-vector-tile"
+    low = c.get("/api/v1/territory/tiles/buildings/10/300/500.mvt")
+    assert low.status_code == 200
+    assert low.content == b""
+    assert c.get("/api/v1/territory/tiles/buildings/14/99999/0.mvt").status_code == 400

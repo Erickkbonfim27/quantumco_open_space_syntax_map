@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
@@ -9,6 +10,7 @@ from typing import Any, Protocol
 from quantumco.territory.application.ports import Ring, TerritoryReader
 from quantumco.territory.domain import profile
 from quantumco.territory.domain.addresses import AddressHit, AddressQuery, rank
+from quantumco.territory.domain.grid import CELL_AREA_M2
 
 # Espécies do CNEFE 2022 (COD_ESPECIE) que viram contagens no painel.
 CNEFE_KINDS = (
@@ -27,7 +29,16 @@ NAMED_LIMIT = 12
 MAP_LAYERS = ("risco", "suscet_inundacao", "saude", "escolas")
 
 
+BUILDING_MIN_ZOOM = 13  # abaixo disso os prédios viram poeira: o tile sai vazio
+MAX_ZOOM = 22
+_LAYER_NAME = re.compile(r"[a-z0-9_]{1,40}")
+
+
 class UnknownLayerError(LookupError):
+    pass
+
+
+class InvalidTileError(ValueError):
     pass
 
 
@@ -42,6 +53,21 @@ class GetPolygonProfile:
         if name not in MAP_LAYERS:
             raise UnknownLayerError(f"camada desconhecida: {name} (há: {', '.join(MAP_LAYERS)})")
         return self._reader.map_layer(name)
+
+    def images(self) -> Sequence[Mapping[str, Any]]:
+        return self._reader.images()
+
+    def image(self, layer: str) -> bytes | None:
+        if not _LAYER_NAME.fullmatch(layer):
+            raise UnknownLayerError(f"camada desconhecida: {layer}")
+        return self._reader.image(layer)
+
+    def building_tile(self, z: int, x: int, y: int) -> bytes:
+        if not 0 <= z <= MAX_ZOOM or not (0 <= x < 2**z and 0 <= y < 2**z):
+            raise InvalidTileError(f"tile inválido: {z}/{x}/{y}")
+        if z < BUILDING_MIN_ZOOM:
+            return b""
+        return self._reader.building_tile(z, x, y)
 
     def __call__(self, ring: Ring) -> dict[str, Any] | None:
         found = self._reader.overlaps(ring)
@@ -87,6 +113,8 @@ class GetPolygonProfile:
                 + names.get("cnes:hospital", [])
                 + names.get("cnes:urgencia", []),
             },
+            "buildings": profile.buildings(found.buildings, found.area_m2),
+            "grid": profile.grid(found.grid, found.area_m2, CELL_AREA_M2),
             "features": {
                 "points": [list(p) for p in found.points],
                 "zones": [dict(z) for z in found.zone_shapes],
