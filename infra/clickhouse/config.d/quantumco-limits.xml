@@ -5,5 +5,6 @@
     <max_server_memory_usage>2684354560</max_server_memory_usage>
     <max_concurrent_queries>20</max_concurrent_queries>
     <mark_cache_size>268435456</mark_cache_size>
-    <background_pool_size>2</background_pool_size>
+    <!-- NÃO reduzir background_pool_size: com 2, o servidor não sobe (precisa ser maior que
+         number_of_free_entries_in_pool_to_execute_mutation = 20; erro BAD_ARGUMENTS, 2026-11-06) -->
 </clickhouse>
