@@ -241,8 +241,10 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       instance.addSource("polys", { type: "geojson", data: empty(), promoteId: "id" });
       instance.addSource("draft", { type: "geojson", data: empty() });
       // duas fontes do mesmo DEM: o MapLibre recomenda separar sombreamento e terreno 3D
-      // terreno 3D com DEM mais grosso (z11): os tiles finos têm vazios do SRTM que viram picos e
-      // "cortinas" verticais; o sombreamento aguenta um pouco mais de detalhe
+      // Terreno 3D (z12) e sombreamento (z13) em fontes separadas, como o MapLibre recomenda.
+      // Limitação conhecida: com o terreno ligado, o MapLibre projeta as linhas numa textura sobre
+      // o relevo e em alguns pontos surgem "riscas" verticais claras; testado com DEM z9–z14 e
+      // não depende dos dados de altitude (sem picos nos tiles). Por isso o 3D está como beta.
       for (const [id, maxzoom] of [["dem-hillshade", 13], ["dem-terrain", 12]] as const) {
         instance.addSource(id, {
           type: "raster-dem",

@@ -137,7 +137,7 @@ export function LayerToggles({
         <span className="mono muted-2 small toggle-source">SRTM</span>
       </Toggle>
       <Toggle on={flags.terrain3d} onClick={() => onToggle("terrain3d")}>
-        Relevo 3D
+        Relevo 3D <span className="beta">beta</span>
         <span className="mono muted-2 small toggle-source">Ctrl + arrastar</span>
       </Toggle>
       <span className="label ws-sublabel">DADOS ABERTOS</span>
