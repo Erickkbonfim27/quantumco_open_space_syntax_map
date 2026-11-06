@@ -24,6 +24,15 @@ def _executor(worker: str) -> ExecuteRun:
     return build_executor(Settings.from_env(), worker)
 
 
+def ingest_cnpj(competencia: str | None = None) -> dict[str, int]:
+    """Carga do CNPJ (fila `dados`): roda na VPS; os arquivos da Receita não saem do servidor."""
+    from quantumco.bootstrap.datasets import ingest_cnpj_use_case  # noqa: PLC0415
+
+    load_env_file()
+    report = ingest_cnpj_use_case(Settings.from_env())(competencia)
+    return report.summary
+
+
 def execute_run(run_id: str) -> str | None:
     job = get_current_job()
     worker = (job.worker_name if job else None) or f"{socket.gethostname()}:{os.getpid()}"

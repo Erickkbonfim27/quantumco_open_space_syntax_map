@@ -39,6 +39,11 @@ territory_app = typer.Typer(
     help="Camadas territoriais: IBGE (setores, CNEFE), SGB (risco) e CNES", no_args_is_help=True
 )
 app.add_typer(territory_app, name="territory")
+data_app = typer.Typer(
+    help="Dados nacionais: Receita → RustFS (bruto) → ClickHouse (tratado). Rode NA VPS.",
+    no_args_is_help=True,
+)
+app.add_typer(data_app, name="dados")
 
 _LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
 
@@ -250,13 +255,64 @@ def worker(
         int | None, typer.Option(help="processos em paralelo (padrão: QC_WORKERS ou 2)")
     ] = None,
     burst: Annotated[bool, typer.Option(help="esvazia a fila e sai (testes)")] = False,
+    fila: Annotated[
+        str, typer.Option(help="'cenarios' (cálculos, 2–4 processos) ou 'dados' (cargas nacionais)")
+    ] = "cenarios",
 ) -> None:
-    """Consome a fila de cálculo dos cenários (Redis + RQ) com 2–4 processos."""
-    from quantumco.entrypoints.worker.pool import start  # noqa: PLC0415
+    """Consome uma fila do Redis (RQ): cálculos dos cenários ou cargas de dados nacionais."""
+    from quantumco.entrypoints.worker.pool import start, start_data  # noqa: PLC0415
 
     settings: Settings = ctx.obj
+    if fila == "dados":
+        start_data(settings, burst=burst)
+        return
+    if fila != "cenarios":
+        raise typer.BadParameter("fila: use 'cenarios' ou 'dados'")
     _migrate_if_configured(settings)
     start(settings, max(1, min(8, workers or settings.workers)), burst=burst)
+
+
+@data_app.command("migrate")
+def data_migrate(ctx: typer.Context) -> None:
+    """Cria/atualiza as tabelas do ClickHouse (QC_CLICKHOUSE_URL)."""
+    from quantumco.bootstrap.datasets import clickhouse  # noqa: PLC0415
+
+    applied = clickhouse(ctx.obj).migrate()
+    typer.echo(f"ClickHouse: {', '.join(applied) or 'nada a aplicar (já atualizado)'}")
+
+
+@data_app.command("cnpj")
+def data_cnpj(
+    ctx: typer.Context,
+    competencia: Annotated[
+        str | None, typer.Option(help="AAAA-MM (padrão: a mais recente publicada)")
+    ] = None,
+    enfileirar: Annotated[
+        bool, typer.Option(help="manda para a fila 'dados' em vez de rodar aqui")
+    ] = False,
+) -> None:
+    """Carrega o CNPJ da Receita: baixa NA VPS, guarda o bruto no RustFS e carrega no ClickHouse."""
+    settings: Settings = ctx.obj
+    if enfileirar:
+        from rq import Queue  # noqa: PLC0415
+
+        from quantumco.bootstrap.datasets import DATA_QUEUE  # noqa: PLC0415
+        from quantumco.scenarios.infrastructure.redis_queue import redis_client  # noqa: PLC0415
+
+        queue = f"{DATA_QUEUE}-homolog" if settings.use_homolog else DATA_QUEUE
+        job = Queue(queue, connection=redis_client(settings.redis_url)).enqueue(
+            "quantumco.entrypoints.worker.jobs.ingest_cnpj",
+            competencia,
+            job_timeout=6 * 3600,
+            result_ttl=30 * 24 * 3600,
+            description=f"CNPJ {competencia or 'mais recente'}",
+        )
+        typer.echo(f"enfileirado na fila '{queue}': job {job.id}")
+        return
+    from quantumco.bootstrap.datasets import ingest_cnpj_use_case  # noqa: PLC0415
+
+    report = ingest_cnpj_use_case(settings)(competencia)
+    typer.echo(f"CNPJ {report.competencia} em {report.seconds}s: {report.summary}")
 
 
 @app.command("serve")

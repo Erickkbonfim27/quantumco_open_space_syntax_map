@@ -74,6 +74,9 @@ class Settings:
     s3_access_key: str = ""
     s3_secret_key: str = ""
     s3_bucket_avatars: str = "quantumco-avatars"
+    # dados nacionais (docs/adr/0001): ClickHouse + bruto no RustFS
+    clickhouse_url: str = ""
+    s3_bucket_dados: str = "quantumco-dados"
     # homologação (platform/homolog.py): QC_USE_HOMOLOG=1 troca o banco da aplicação pela cópia
     production_database_url: str = ""
     homolog_database_url: str = ""
@@ -106,6 +109,8 @@ class Settings:
                 "QC_USE_HOMOLOG=1, mas o banco de homologação não tem 'homolog' no nome"
             )
         return cls(
+            clickhouse_url=source.get("QC_CLICKHOUSE_URL", "").strip(),
+            s3_bucket_dados=source.get("QC_S3_BUCKET_DADOS", "").strip() or "quantumco-dados",
             production_database_url=production,
             homolog_database_url=homolog,
             use_homolog=use_homolog,

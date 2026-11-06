@@ -24,5 +24,6 @@ cmds = [
 
 [start]
 # QC_ROLE=worker no serviço "worker" (mesma build): consome a fila de cálculo dos cenários.
+# QC_ROLE=worker-dados no serviço "worker-dados": fila 'dados' (cargas nacionais, docs/adr/0001).
 # Sem QC_ROLE (ou api): a API HTTP.
-cmd = "if [ \"${QC_ROLE:-api}\" = worker ]; then exec env PYTHONUNBUFFERED=1 /app/.venv/bin/quantumco worker; else exec env PYTHONUNBUFFERED=1 /app/.venv/bin/uvicorn quantumco.entrypoints.api.app:create_app --factory --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*'; fi"
+cmd = "case \"${QC_ROLE:-api}\" in worker) exec env PYTHONUNBUFFERED=1 /app/.venv/bin/quantumco worker ;; worker-dados) exec env PYTHONUNBUFFERED=1 /app/.venv/bin/quantumco worker --fila dados ;; *) exec env PYTHONUNBUFFERED=1 /app/.venv/bin/uvicorn quantumco.entrypoints.api.app:create_app --factory --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*' ;; esac"

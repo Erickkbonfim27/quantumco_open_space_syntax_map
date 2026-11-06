@@ -83,6 +83,20 @@ def recover(settings: Settings) -> int:
     return again
 
 
+def start_data(settings: Settings, *, burst: bool = False) -> None:
+    """Worker da fila `dados` (cargas nacionais): um processo, um job por vez, longo."""
+    from quantumco.bootstrap.datasets import DATA_QUEUE  # noqa: PLC0415
+
+    if not settings.redis_url:
+        raise RuntimeError("QC_REDIS_URL não definido: o worker precisa do Redis")
+    redis = redis_client(settings.redis_url)
+    redis.ping()
+    queue = f"{DATA_QUEUE}-homolog" if settings.use_homolog else DATA_QUEUE
+    log.info("fila '%s': %d na espera; worker de dados no ar", queue,
+             Queue(queue, connection=redis).count)  # fmt: skip
+    Worker([queue], connection=redis).work(burst=burst, logging_level=settings.log_level)
+
+
 def start(settings: Settings, workers: int, *, burst: bool = False) -> None:
     if not settings.redis_url:
         raise RuntimeError("QC_REDIS_URL não definido: o worker precisa do Redis")

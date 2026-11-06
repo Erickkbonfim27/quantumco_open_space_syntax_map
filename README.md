@@ -77,6 +77,8 @@ Dois serviços "App" apontando para este repositório no GitHub:
 |---|---|---|---|---|
 | `backend` | `/backend` | `backend/nixpacks.toml` | 8000 | `QC_DATABASE_URL` apontando para o PostGIS (host interno); variáveis do `.env`; health em `/health` |
 | `worker` | `/backend` | `backend/nixpacks.toml` | — | mesma build e variáveis do `backend`, mais `QC_ROLE=worker` e `QC_WORKERS`; precisa do Redis (`QC_REDIS_URL`) |
+| `worker-dados` | `/backend` | `backend/nixpacks.toml` | — | mesma build e variáveis do `backend`, mais `QC_ROLE=worker-dados`, `QC_ALLOW_RECEITA_DOWNLOAD=1` e `QC_CLICKHOUSE_URL`; fila `dados` (cargas nacionais, ADR 0001) |
+| `clickhouse` | — | imagem `clickhouse/clickhouse-server:26.3.9.8` | — (interna) | limites em `infra/clickhouse/` (montar em `config.d` e `users.d`); 3 GB e 1 núcleo; `CLICKHOUSE_DB=dados`, `CLICKHOUSE_USER=quantumco`, `CLICKHOUSE_PASSWORD` |
 | `frontend` | `/frontend` | `frontend/nixpacks.toml` + `frontend/Caddyfile` | 80 | variável `API_UPSTREAM` = endereço interno da API (ex.: `projeto_api:8000`) |
 
 O Postgres precisa da imagem `postgis/postgis:18-3.6`. Depois do primeiro deploy da API, no

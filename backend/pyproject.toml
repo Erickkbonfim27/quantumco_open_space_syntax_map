@@ -95,6 +95,16 @@ modules = [
     "quantumco.location_report",
     "quantumco.identity",
     "quantumco.territory",
+    "quantumco.datasets",
+]
+
+[[tool.importlinter.contracts]]
+name = "Dados nacionais: camadas hexagonais"
+type = "layers"
+layers = [
+    "quantumco.datasets.infrastructure",
+    "quantumco.datasets.application",
+    "quantumco.datasets.domain",
 ]
 
 [[tool.importlinter.contracts]]
@@ -154,6 +164,7 @@ forbidden_modules = [
     "quantumco.location_report",
     "quantumco.identity",
     "quantumco.territory",
+    "quantumco.datasets",
     "quantumco.entrypoints",
     "quantumco.bootstrap",
 ]
@@ -173,6 +184,8 @@ source_modules = [
     "quantumco.scenarios.application",
     "quantumco.territory.domain",
     "quantumco.territory.application",
+    "quantumco.datasets.domain",
+    "quantumco.datasets.application",
 ]
 forbidden_modules = [
     "geopandas",
@@ -191,4 +204,5 @@ forbidden_modules = [
     "quantumco.platform",
     "argon2",
     "overturemaps",
+    "minio",
 ]
