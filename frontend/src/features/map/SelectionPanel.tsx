@@ -94,7 +94,7 @@ export function SelectionPanel({ selection, measure, radius, onClose, actions }:
           <dt>Comprimento</dt>
           <dd>{formatMeters(link.length_m)}</dd>
           <dt>Zona</dt>
-          <dd>{link.zone === "result" ? "Brusque" : "Entorno (só cálculo)"}</dd>
+          <dd>{link.zone === "result" ? "Dentro do município" : "Entorno (só cálculo)"}</dd>
           {(link.is_bridge || link.is_tunnel) && (
             <>
               <dt>Estrutura</dt>

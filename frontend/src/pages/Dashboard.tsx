@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 
 import { PlatformBar } from "../components/PlatformBar";
 import { api, ApiError } from "../lib/api";
+import { CitySelect, DEFAULT_CITY, preferredCity, useCities } from "../lib/city";
 import {
   MEASURE_SHORT,
   STATUS_COLOR,
@@ -96,6 +97,11 @@ export function Dashboard() {
   const [newName, setNewName] = useState("");
   const [newMeasure, setNewMeasure] = useState<WorkspaceMeasure>("nain");
   const [creating, setCreating] = useState(false);
+  const cities = useCities();
+  const cityList = cities.status === "ready" ? cities.cities : [];
+  const [chosenCity, setChosenCity] = useState<string | null>(null);
+  // padrão: a última cidade aberta no mapa (ou Brusque)
+  const newCity = chosenCity ?? preferredCity(cityList)?.ibge_code ?? DEFAULT_CITY;
 
   useEffect(() => {
     api<Workspace[]>("workspaces")
@@ -114,7 +120,7 @@ export function Dashboard() {
     const q = query.trim().toLowerCase();
     return (
       (filter === "todos" || w.status === filter) &&
-      (!q || `${w.name} ${w.area}`.toLowerCase().includes(q))
+      (!q || `${w.name} ${w.area} ${w.city}`.toLowerCase().includes(q))
     );
   });
 
@@ -123,7 +129,7 @@ export function Dashboard() {
     try {
       const created = await api<Workspace>("workspaces", {
         method: "POST",
-        json: { name: newName.trim() || "Cenário sem nome", measure: newMeasure },
+        json: { name: newName.trim() || "Cenário sem nome", measure: newMeasure, ibge_code: newCity },
       });
       navigate(`/painel/cenario/${created.id}`);
     } catch (err) {
@@ -203,7 +209,9 @@ export function Dashboard() {
                 <Thumb workspace={w} />
                 <span className="row-name">
                   <span className="row-title">{w.name}</span>
-                  <span className="row-sub">{w.area}</span>
+                  <span className="row-sub">
+                    {w.area === w.city ? w.city : `${w.city} · ${w.area}`}
+                  </span>
                 </span>
                 <span className="mono">{w.polygons === 0 ? "—" : w.polygons}</span>
                 <span className="soft">{MEASURE_SHORT[w.measure]}</span>
@@ -247,8 +255,18 @@ export function Dashboard() {
               />
             </label>
             <div className="input-field">
-              <span className="label">ÁREA DE ESTUDO</span>
-              <div className="fake-input">Brusque, SC</div>
+              <span className="label">CIDADE</span>
+              {cityList.length > 0 ? (
+                <CitySelect
+                  cities={cityList}
+                  value={newCity}
+                  onChange={(c) => setChosenCity(c.ibge_code)}
+                  className="city-select-field"
+                  label="A cidade do cenário não muda depois"
+                />
+              ) : (
+                <div className="fake-input">Carregando as cidades…</div>
+              )}
             </div>
             <div className="input-field">
               <span className="label">MEDIDA INICIAL</span>

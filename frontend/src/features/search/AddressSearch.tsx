@@ -26,6 +26,8 @@ export const pinFor = (hit: AddressHit | null) =>
     : null;
 
 interface SearchBoxProps {
+  /** a cidade do mapa: a busca de endereço é só dentro dela */
+  city: { ibge_code: string; name: string };
   /** com polígonos (mapa do cenário) há o seletor; no mapa público só endereço */
   modes?: SearchMode[];
   mode: SearchMode;
@@ -38,10 +40,10 @@ interface SearchBoxProps {
 }
 
 /**
- * Busca da barra do mapa: filtra polígonos ou procura um endereço de Brusque (CNEFE 2022).
+ * Busca da barra do mapa: filtra polígonos ou procura um endereço da cidade (CNEFE 2022).
  * No modo endereço, a lista abre enquanto digita; Enter escolhe o primeiro, setas navegam.
  */
-export function SearchBox({ modes = ["endereco"], mode, onMode, polygonQuery = "", onPolygonQuery, onAddress, className = "" }: SearchBoxProps) {
+export function SearchBox({ city, modes = ["endereco"], mode, onMode, polygonQuery = "", onPolygonQuery, onAddress, className = "" }: SearchBoxProps) {
   const [text, setText] = useState("");
   const [hits, setHits] = useState<AddressHit[]>([]);
   const [open, setOpen] = useState(false);
@@ -58,7 +60,9 @@ export function SearchBox({ modes = ["endereco"], mode, onMode, polygonQuery = "
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       setLoading(true);
-      api<AddressHit[]>(`territory/addresses?q=${encodeURIComponent(q)}`, { signal: controller.signal })
+      api<AddressHit[]>(`cities/${city.ibge_code}/territory/addresses?q=${encodeURIComponent(q)}`, {
+        signal: controller.signal,
+      })
         .then((result) => {
           setHits(result);
           setActive(0);
@@ -71,7 +75,7 @@ export function SearchBox({ modes = ["endereco"], mode, onMode, polygonQuery = "
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [text, mode, chosen]);
+  }, [text, mode, chosen, city.ibge_code]);
 
   useEffect(() => {
     const close = (event: MouseEvent) => {
@@ -120,8 +124,8 @@ export function SearchBox({ modes = ["endereco"], mode, onMode, polygonQuery = "
         aria-expanded={mode === "endereco" && open}
         aria-controls={listId}
         aria-autocomplete="list"
-        aria-label={mode === "poligono" ? "Buscar polígono" : "Buscar endereço em Brusque"}
-        placeholder={mode === "poligono" ? "Buscar polígono" : "Rua, número… (ex.: Rua Azambuja 300)"}
+        aria-label={mode === "poligono" ? "Buscar polígono" : `Buscar endereço em ${city.name}`}
+        placeholder={mode === "poligono" ? "Buscar polígono" : `Rua e número em ${city.name}`}
         onFocus={() => hits.length && setOpen(true)}
         onChange={(e) => {
           if (mode === "poligono") onPolygonQuery?.(e.target.value);
@@ -146,7 +150,7 @@ export function SearchBox({ modes = ["endereco"], mode, onMode, polygonQuery = "
       {mode === "endereco" && open && !short && (
         <ul className="searchbox-list" id={listId} role="listbox">
           {loading && hits.length === 0 && <li className="searchbox-empty">Buscando…</li>}
-          {!loading && hits.length === 0 && <li className="searchbox-empty">Nenhum endereço encontrado em Brusque.</li>}
+          {!loading && hits.length === 0 && <li className="searchbox-empty">Nenhum endereço encontrado em {city.name}.</li>}
           {hits.map((hit, i) => (
             <li key={`${hit.label}-${i}`} role="option" aria-selected={i === active}>
               <button type="button" className={i === active ? "searchbox-hit searchbox-hit-on" : "searchbox-hit"} onMouseEnter={() => setActive(i)} onClick={() => choose(hit)}>

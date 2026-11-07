@@ -81,7 +81,7 @@ export function AnalysisPanel({ analysis, measure, radius, onMeasure, onRadius }
         </li>
         <li>
           <span className="swatch swatch-outline" aria-hidden="true" />
-          Limite de Brusque
+          Limite do município
         </li>
       </ul>
     </section>

@@ -608,3 +608,83 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* ------------------------------------------------------------------ cidades */
+
+.city-select {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.city-select-label {
+  color: var(--text-faint);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.city-select select {
+  height: 36px;
+  padding: 0 34px 0 14px;
+  border: 1px solid rgba(var(--fg-rgb), 0.16);
+  border-radius: 999px;
+  background: var(--surface)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.4'/%3E%3C/svg%3E")
+    no-repeat right 14px center;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 14px;
+  appearance: none;
+  cursor: pointer;
+}
+
+.city-select select:focus-visible {
+  border-color: var(--beam-green);
+  outline: none;
+}
+
+/* na barra do mapa: compacto, ao lado das abas */
+.city-select-compact select {
+  width: auto;
+  max-width: 168px;
+  height: 32px;
+  padding: 0 30px 0 12px;
+  background-position: right 12px center;
+  font-size: 13px;
+  text-overflow: ellipsis;
+}
+
+.city-select-field,
+.city-select-field select {
+  width: 100%;
+}
+
+.city-select-field select {
+  height: 50px;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 300;
+}
+
+.landing-cities {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: -24px 0 40px;
+}
+
+.chip-city {
+  padding: 7px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.chip-city:hover {
+  border-color: var(--beam-green);
+}

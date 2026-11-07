@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router";
 
 import { QuantumcoIcon } from "../brand/QuantumcoIcon";
 import { Sphere } from "../brand/Sphere";
+import { cityLabel, cityPath, useCities } from "../lib/city";
 import { useSession } from "../lib/session";
 
 const FEATURES = [
@@ -14,6 +15,8 @@ const FEATURES = [
 export function Landing() {
   const navigate = useNavigate();
   const { user } = useSession();
+  const cities = useCities();
+  const list = cities.status === "ready" ? cities.cities : [];
   return (
     <main className="landing">
       <Sphere className="landing-sphere" />
@@ -24,7 +27,7 @@ export function Landing() {
         </Link>
         <span className="spacer" />
         <Link to="/map" className="text-link">
-          Ver o mapa de Brusque
+          Ver os mapas
         </Link>
         {user ? (
           <button type="button" className="pill pill-light topbar-cta" onClick={() => navigate("/painel")}>
@@ -57,7 +60,7 @@ export function Landing() {
             </span>
           </button>
           <button type="button" className="pill pill-outline pill-lg" onClick={() => navigate("/map")}>
-            Ver o mapa de Brusque
+            Ver o mapa
           </button>
           {!user && (
             <button type="button" className="pill pill-ghost pill-lg" onClick={() => navigate("/entrar")}>
@@ -66,6 +69,18 @@ export function Landing() {
           )}
         </div>
       </section>
+
+      {list.length > 0 && (
+        <nav className="landing-cities" aria-label="Cidades com mapa">
+          <span className="kicker">CIDADES</span>
+          {list.map((c) => (
+            <Link key={c.ibge_code} to={cityPath(c)} className="chip-city">
+              {cityLabel(c)}
+            </Link>
+          ))}
+          <span className="muted small">Brusque foi a primeira; o objetivo é o Brasil inteiro.</span>
+        </nav>
+      )}
 
       <section className="features" aria-label="O que você encontra">
         {FEATURES.map(([n, title, text]) => (

@@ -84,7 +84,7 @@ export function RadiusSection({
 const BASE_LAYERS: [keyof MapFlags, string][] = [
   ["net", "Malha sintática"],
   ["ent", "Entorno (faixa de 7 km)"],
-  ["lim", "Limite de Brusque"],
+  ["lim", "Limite do município"],
 ];
 export const OPEN_LAYERS: [Overlay, string, string][] = [
   ["risco", "Áreas de risco", "SGB 2018–19"],
@@ -135,11 +135,14 @@ export function LayerToggles({
   flags,
   onToggle,
   withPolygons = false,
+  withListings = false,
   error,
 }: {
   flags: MapFlags;
   onToggle: (key: keyof MapFlags) => void;
   withPolygons?: boolean;
+  /** imóveis à venda (prova de conceito): só no mapa do cenário, com login */
+  withListings?: boolean;
   error?: string | null;
 }) {
   const base: [keyof MapFlags, string][] = withPolygons
@@ -175,6 +178,16 @@ export function LayerToggles({
         Edificações
         <span className="mono muted-2 small toggle-source">Overture · zoom 13+</span>
       </Toggle>
+      {withListings && (
+        <>
+          <span className="label ws-sublabel">MERCADO</span>
+          <Toggle on={flags.imoveis} onClick={() => onToggle("imoveis")}>
+            <span className="toggle-swatch toggle-swatch-ink" aria-hidden="true" />
+            Imóveis à venda <span className="beta">poc</span>
+            <span className="mono muted-2 small toggle-source">Viva Real</span>
+          </Toggle>
+        </>
+      )}
       {error && <div className="form-error">Não foi possível carregar a camada “{error}”.</div>}
     </div>
   );

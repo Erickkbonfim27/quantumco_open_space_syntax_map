@@ -1,0 +1,63 @@
+/* Janela do pino de imóvel à venda (docs/adr/0003). Usa os tokens do mapa (tema claro e escuro). */
+
+.qc-popup-listing .maplibregl-popup-content {
+  padding: 0;
+  overflow: hidden;
+}
+
+.qc-listing {
+  display: flex;
+  flex-direction: column;
+  width: 260px;
+}
+
+.qc-listing-photo {
+  display: block;
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+  background: rgba(var(--map-ink-rgb), 0.08);
+}
+
+.qc-listing-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px 11px;
+}
+
+.qc-listing-title {
+  font-size: 13px;
+}
+
+.qc-popup .maplibregl-popup-content .qc-listing-price {
+  font-size: 17px;
+  font-weight: 400;
+  color: var(--map-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.qc-popup .maplibregl-popup-content .qc-listing-m2 {
+  font-size: 12px;
+  font-weight: 300;
+  color: var(--map-muted);
+}
+
+.qc-listing-link {
+  margin-top: 4px;
+  color: var(--green-text);
+  font-size: 12.5px;
+  text-decoration: none;
+}
+
+.qc-listing-link:hover,
+.qc-listing-link:focus-visible {
+  text-decoration: underline;
+}
+
+.qc-popup .maplibregl-popup-content .qc-listing-source {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--map-faint);
+}

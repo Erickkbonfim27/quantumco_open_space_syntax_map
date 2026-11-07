@@ -8,6 +8,7 @@ import { PlatformBar } from "../components/PlatformBar";
 import { EDIT_COLORS, OVERLAY_COLOR } from "../features/map/MapView";
 import { DELTA_COLORS, RADII, SYNTAX_PALETTE } from "../features/map/syntaxPalette";
 import { apiCached } from "../lib/api";
+import { cityApi, DEFAULT_CITY } from "../lib/city";
 import type { Manifest } from "../lib/types";
 
 /**
@@ -39,10 +40,11 @@ function useLiveData() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   useEffect(() => {
     let alive = true;
-    apiCached<LayerInfo[]>("territory/layers")
+    // as contagens desta página são de Brusque, a primeira cidade (as fontes valem para todas)
+    apiCached<LayerInfo[]>(cityApi(DEFAULT_CITY, "territory/layers"))
       .then((v) => alive && setLayers(v))
       .catch(() => alive && setLayers([]));
-    apiCached<Manifest>("network/manifest")
+    apiCached<Manifest>(cityApi(DEFAULT_CITY, "network/manifest"))
       .then((v) => alive && setManifest(v))
       .catch(() => undefined);
     return () => {
@@ -83,10 +85,12 @@ export function DataPage() {
       <main className="ct-main">
         <header className="ct-hero">
           <span className="label">DADOS</span>
-          <h1>Dados abertos sobre Brusque</h1>
+          <h1>Dados abertos de cada cidade</h1>
           <p className="ct-lead">
-            Tudo o que aparece no mapa vem de fontes públicas e gratuitas. Aqui estão as fontes, o que
-            cada uma traz e como a usamos, e cada indicador que você pode ligar nos mapas.
+            Tudo o que aparece no mapa vem de fontes públicas e gratuitas, recortadas para cada cidade
+            pelo código do IBGE. Aqui estão as fontes, o que cada uma traz e como a usamos, e cada
+            indicador que você pode ligar nos mapas. Os números de exemplo são de Brusque, a primeira
+            cidade do quantumco.
           </p>
         </header>
 
@@ -559,7 +563,7 @@ const GROUPS: Group[] = [
       {
         id: "classes",
         name: "Classes de cor",
-        what: "Os valores viram 7 classes por percentil ponderado pela extensão, só com os trechos de Brusque.",
+        what: "Os valores viram 7 classes por percentil ponderado pela extensão, só com os trechos da cidade.",
         read: "Cada cor cobre a mesma quantidade de quilômetros de rua. Trechos mais integrados ficam mais grossos e por cima. A faixa externa de 7 km aparece em cinza: serve só ao cálculo.",
         unit: "Classe 1 (mais segregada) a 7 (mais integrada).",
         source: "Simbologia da metodologia v1",
@@ -589,7 +593,7 @@ const GROUPS: Group[] = [
         id: "n2",
         tag: "N2",
         name: "Rede viária",
-        what: "Os trechos de Brusque que cruzam a área, recortados por ela.",
+        what: "Os trechos da cidade que cruzam a área, recortados por ela.",
         read: "A barra mostra quantos km de rua há em cada classe de cor; a média resume a área no raio escolhido.",
         unit: "Trechos, km, média de NAIN/NACH.",
         metrics: [
@@ -762,7 +766,7 @@ const GROUPS: Group[] = [
       {
         id: "base",
         name: "Malha, entorno e limite",
-        what: "A própria rede sintática, a faixa externa de 7 km e o limite municipal de Brusque.",
+        what: "A própria rede sintática, a faixa externa de 7 km e o limite do município.",
         read: "Desligar a malha deixa ver só o fundo e as outras camadas.",
         unit: "—",
         source: "OpenStreetMap",
@@ -799,7 +803,7 @@ const GROUPS: Group[] = [
         id: "diferenca",
         name: "Diferença de classe",
         what: "Quantas classes cada trecho ganhou ou perdeu em relação ao mapa atual.",
-        read: "As classes do cenário usam os cortes do mapa publicado; assim ganhos e perdas aparecem. O resumo diz quantos km de rua de Brusque subiram ou caíram de classe (raios n e 800 m).",
+        read: "As classes do cenário usam os cortes do mapa publicado; assim ganhos e perdas aparecem. O resumo diz quantos km de rua da cidade subiram ou caíram de classe (raios n e 800 m).",
         unit: "Classes (−6 a +6) e km.",
         source: "Recálculo com o mesmo motor e a mesma metodologia",
         where: ["Cenários"],

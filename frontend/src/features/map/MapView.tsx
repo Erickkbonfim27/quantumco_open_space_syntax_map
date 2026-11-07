@@ -20,6 +20,7 @@ import { api } from "../../lib/api";
 import { boundsOf } from "../../lib/geo";
 import type { NetworkEdit, PolygonCollection } from "../../lib/platformTypes";
 import { useTheme } from "../../lib/theme";
+import { ensureListingIcons, LISTINGS, listingPopupHtml, listingsLayer } from "../listings/listingsLayer";
 import type { LinkProperties, Measure, RadiusKey, SnapshotData } from "../../lib/types";
 import type { CameraStore } from "./cameraStore";
 import { DEM_ATTRIBUTION, DEM_TILES } from "./dem";
@@ -94,8 +95,8 @@ export const OVERLAY_COLOR: Record<Overlay, string> = {
 const BUILDINGS = "predios";
 const BUILDINGS_MIN_ZOOM = 13;
 const BUILDINGS_ATTRIBUTION = "© OpenStreetMap contributors, Overture Maps Foundation";
-const buildingTilesUrl = () =>
-  new URL(`${config.apiUrl}/api/v1/territory/tiles/buildings/{z}/{x}/{y}.mvt`, window.location.origin)
+const buildingTilesUrl = (city: string) =>
+  new URL(`${config.apiUrl}/api/v1/cities/${city}/territory/tiles/buildings/{z}/{x}/{y}.mvt`, window.location.origin)
     .toString()
     .replace(/%7B/g, "{")
     .replace(/%7D/g, "}");
@@ -116,6 +117,8 @@ export interface MapFlags {
   escolas: boolean;
   lugares: boolean;
   predios: boolean;
+  /** imóveis à venda (prova de conceito, só no mapa do cenário, com login e flag) */
+  imoveis: boolean;
 }
 
 export const DEFAULT_FLAGS: MapFlags = {
@@ -131,6 +134,7 @@ export const DEFAULT_FLAGS: MapFlags = {
   escolas: false,
   lugares: false,
   predios: false,
+  imoveis: false,
 };
 
 export interface Selection {
@@ -149,6 +153,8 @@ export interface MapViewHandle {
 export type MapTool = "select" | "draw" | "line" | "pick";
 
 interface MapViewProps {
+  /** código IBGE da cidade: camadas do território e prédios vêm dela (remonte o mapa ao trocar) */
+  city: string;
   data: SnapshotData;
   measure: Measure;
   radius: RadiusKey;
@@ -166,7 +172,7 @@ interface MapViewProps {
   /** endereço encontrado na busca: pin + enquadramento */
   pin?: { lngLat: [number, number]; label: string } | null;
   onCursor?: (lngLat: [number, number], zoom: number) => void;
-  onOverlayError?: (overlay: Overlay) => void;
+  onOverlayError?: (overlay: Overlay | typeof LISTINGS) => void;
   // polígonos (cenário do usuário)
   polygons?: PolygonCollection;
   selectedPolygonId?: string | null;
@@ -255,6 +261,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
   const map = useRef<MapLibreMap | null>(null);
   const live = useRef(props);
   const loaded = useRef(new Set<Overlay>());
+  const listingsCity = useRef<string | null>(null); // cidade cujos imóveis já estão no mapa
   const draft = useRef<Position[]>([]);
   const snapped = useRef<boolean[]>([]);
   const cursor = useRef<Position | null>(null);
@@ -366,17 +373,22 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
   // cria o mapa uma vez
   useEffect(() => {
     if (!container.current) return;
+    // começa no centro do município (o enquadramento exato vem logo depois, com os dados)
+    const frame = boundsOf(live.current.data.municipality.features.map((f) => f.geometry));
+    const start: [number, number] = frame
+      ? [(frame[0][0] + frame[1][0]) / 2, (frame[0][1] + frame[1][1]) / 2]
+      : [-48.917, -27.098];
     const instance = new MapLibreMap({
       container: container.current,
       style: config.basemapStyleUrl ?? basemapStyle,
-      center: [-48.917, -27.098],
+      center: start,
       zoom: 12,
       attributionControl: { compact: false },
     });
     instance.addControl(new ScaleControl({ unit: "metric" }), "bottom-right");
 
     // grade de pontos do design: o fundo (CSS) acompanha o arraste do mapa
-    const anchor: [number, number] = [-48.917, -27.098];
+    const anchor = start;
     const syncGrid = () => {
       const el = container.current;
       if (!el) return;
@@ -393,9 +405,10 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       instance.addSource(MUNICIPALITY, { type: "geojson", data: empty() });
       instance.addSource(NETWORK, { type: "geojson", data: empty(), promoteId: "link_id" });
       for (const overlay of OVERLAYS) instance.addSource(overlay, { type: "geojson", data: empty() });
+      instance.addSource(LISTINGS, { type: "geojson", data: empty() });
       instance.addSource(BUILDINGS, {
         type: "vector",
-        tiles: [buildingTilesUrl()],
+        tiles: [buildingTilesUrl(live.current.city)],
         minzoom: BUILDINGS_MIN_ZOOM,
         maxzoom: 16, // acima disso o MapLibre amplia o tile do z16
         attribution: BUILDINGS_ATTRIBUTION,
@@ -584,6 +597,9 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
         },
         false,
       );
+      // imóveis à venda: pinos de casa ou prédio, acima dos outros pontos
+      ensureListingIcons(instance, "dark"); // o efeito do tom redesenha no tom certo
+      add(listingsLayer(), false);
       add(
         {
           id: "polys-label",
@@ -638,6 +654,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
     });
 
     const popup = new Popup({ closeButton: false, className: "qc-popup", maxWidth: "260px" });
+    const listingPopup = new Popup({ closeButton: true, className: "qc-popup qc-popup-listing", maxWidth: "280px" });
     instance.on("click", (event: MapMouseEvent) => {
       // via nova: cada clique é um vértice, encaixado na rede; clicar no último ponto termina
       if (live.current.tool === "line") {
@@ -675,6 +692,18 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       const overlayLayers = (["escolas", "saude", "lugares", "risco", "inundacao", "predios"] as const).filter(
         (id) => instance.getLayer(id) && instance.getLayoutProperty(id, "visibility") === "visible",
       );
+      if (instance.getLayer(LISTINGS) && instance.getLayoutProperty(LISTINGS, "visibility") === "visible") {
+        const [listing] = instance.queryRenderedFeatures(event.point, { layers: [LISTINGS] });
+        if (listing && listing.geometry.type === "Point") {
+          popup.remove();
+          listingPopup
+            .setLngLat(listing.geometry.coordinates as [number, number])
+            .setHTML(listingPopupHtml(listing.properties))
+            .addTo(instance);
+          return;
+        }
+      }
+      listingPopup.remove();
       const hits = instance.queryRenderedFeatures(event.point, { layers: ["links-hit", "polys-fill", ...overlayLayers] });
       const point = hits.find((h) => h.layer.id === "escolas" || h.layer.id === "saude" || h.layer.id === "lugares");
       const link = hits.find((h) => h.layer.id === "links-hit");
@@ -721,7 +750,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
     window.addEventListener("keydown", onKey);
 
     const idleCursor = () => (live.current.tool === "draw" || live.current.tool === "line" ? "crosshair" : "");
-    for (const id of ["links-hit", "saude", "escolas"]) {
+    for (const id of ["links-hit", "saude", "escolas", LISTINGS]) {
       instance.on("mouseenter", id, () => {
         if (live.current.tool === "select" || live.current.tool === "pick") instance.getCanvas().style.cursor = "pointer";
       });
@@ -801,13 +830,24 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
         m.setTerrain(null);
         m.easeTo({ pitch: 0, bearing: 0, duration: 700 });
       }
+      m.setLayoutProperty(LISTINGS, "visibility", show(flags.imoveis));
+      const city = live.current.city;
+      if (flags.imoveis && listingsCity.current !== city) {
+        listingsCity.current = city;
+        api<FeatureCollection>(`cities/${city}/listings`)
+          .then((fc) => (m.getSource(LISTINGS) as GeoJSONSource | undefined)?.setData(fc))
+          .catch(() => {
+            listingsCity.current = null;
+            live.current.onOverlayError?.(LISTINGS);
+          });
+      }
       for (const overlay of OVERLAYS) {
         const on = flags[overlay];
         m.setLayoutProperty(overlay, "visibility", show(on));
         if (overlay === "risco") m.setLayoutProperty("risco-line", "visibility", show(on));
         if (on && !loaded.current.has(overlay)) {
           loaded.current.add(overlay);
-          api<FeatureCollection>(OVERLAY_ENDPOINT[overlay])
+          api<FeatureCollection>(`cities/${live.current.city}/${OVERLAY_ENDPOINT[overlay]}`)
             .then((fc) => (m.getSource(overlay) as GeoJSONSource | undefined)?.setData(fc))
             .catch(() => {
               loaded.current.delete(overlay);
@@ -847,6 +887,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
       m.setPaintProperty("edit-new", "line-color", ink.ink);
       m.setPaintProperty("predios", "fill-color", ink.ink);
       m.setPaintProperty("predios-line", "line-color", ink.ink);
+      ensureListingIcons(m, tone);
       m.setPaintProperty("polys-line", "line-color", [
         "case",
         ["boolean", ["feature-state", "selected"], false],
@@ -916,5 +957,5 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(function MapView(
      
   }, [selectedId]);
 
-  return <div ref={container} className="map" role="region" aria-label="Mapa sintático de Brusque" />;
+  return <div ref={container} className="map" role="region" aria-label="Mapa sintático da cidade" />;
 });

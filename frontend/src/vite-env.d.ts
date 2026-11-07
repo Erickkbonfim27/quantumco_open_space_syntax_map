@@ -8,3 +8,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** Versão do site (package.json), definida no build pelo Vite. */
+declare const __APP_VERSION__: string;

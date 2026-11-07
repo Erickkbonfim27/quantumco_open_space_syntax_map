@@ -41,7 +41,7 @@ export function ReleaseInfo({ manifest, analysis }: ReleaseInfoProps) {
             <dd>
               {analysis.engine} {analysis.engine_version}
               {analysis.preliminary && (
-                <span className="pill-warn" title="Validação contra o depthmapX pendente; classes por percentil da extensão viária de Brusque.">
+                <span className="pill-warn" title="Validação contra o depthmapX pendente; classes por percentil da extensão viária da cidade.">
                   preliminar
                 </span>
               )}

@@ -9,6 +9,7 @@ import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 
+import { CityRedirect } from "./lib/city";
 import { SessionProvider, useSession } from "./lib/session";
 import { ThemeProvider } from "./lib/theme";
 import { ConfirmEmail, ForgotPassword, ResetPassword } from "./pages/AccountLinks";
@@ -42,7 +43,8 @@ createRoot(root).render(
       <SessionProvider>
         <Routes>
           <Route path="/" element={<Landing />} />
-          <Route path="/map" element={<PublicMap />} />
+          <Route path="/map" element={<CityRedirect />} />
+          <Route path="/map/:uf/:slug" element={<PublicMap />} />
           <Route path="/dados" element={<DataPage />} />
           <Route path="/metodologia" element={<MethodologyPage />} />
           <Route path="/entrar" element={<Auth mode="login" />} />

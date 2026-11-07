@@ -48,6 +48,10 @@ export interface NetworkEdit {
 
 export interface Workspace {
   id: string;
+  /** a cidade do cenário (código IBGE); escolhida na criação, não muda */
+  ibge_code: string;
+  /** "Itapema, SC" */
+  city: string;
   name: string;
   measure: WorkspaceMeasure;
   status: WorkspaceStatus;

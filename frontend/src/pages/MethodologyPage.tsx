@@ -7,6 +7,7 @@ import { Footer } from "../components/Footer";
 import { PlatformBar } from "../components/PlatformBar";
 import { SYNTAX_PALETTE } from "../features/map/syntaxPalette";
 import { apiCached } from "../lib/api";
+import { cityApi, DEFAULT_CITY } from "../lib/city";
 import type { AnalysisManifest, Manifest } from "../lib/types";
 
 /**
@@ -52,10 +53,10 @@ export function MethodologyPage() {
 
   useEffect(() => {
     let alive = true;
-    apiCached<Manifest>("network/manifest")
+    apiCached<Manifest>(cityApi(DEFAULT_CITY, "network/manifest"))
       .then((v) => alive && setNetwork(v))
       .catch(() => undefined);
-    apiCached<AnalysisManifest>("syntax/manifest")
+    apiCached<AnalysisManifest>(cityApi(DEFAULT_CITY, "syntax/manifest"))
       .then((v) => alive && setAnalysis(v))
       .catch(() => undefined);
     return () => {
@@ -124,7 +125,8 @@ export function MethodologyPage() {
           <article className="ct-article">
             <Section id="visao" title="Visão geral">
               <p>
-                O quantumco é um mapa sintático aberto e gratuito de Brusque-SC. A sintaxe espacial lê a
+                O quantumco é um mapa sintático aberto e gratuito das cidades brasileiras, começando por
+                Brusque-SC. A sintaxe espacial lê a
                 cidade pela forma da sua rede de ruas: quais trechos são fáceis de alcançar e por quais
                 passa mais gente atravessando. É feito para arquitetura e urbanismo, construtoras e
                 incorporadoras, pesquisa e poder público.
@@ -138,13 +140,15 @@ export function MethodologyPage() {
 
             <Section id="area" title="Área de estudo">
               <p>
-                Brusque é escolhida pelo <strong>código IBGE 4202909</strong> e pela{" "}
-                <strong>relação OSM 296588</strong>, nunca pelo nome (existe uma Brusque na França).
+                Cada cidade é escolhida pelo <strong>código IBGE</strong> e pela{" "}
+                <strong>relação de limite do OSM</strong> com esse código, nunca pelo nome (existe uma
+                Brusque na França e um Bom Jesus em cinco estados). Brusque: IBGE 4202909, relação
+                296588. Cada cidade é calculada sozinha, com a sua faixa externa.
               </p>
               <p>
                 O cálculo usa uma <strong>faixa externa de 7 km</strong> em volta do município, para que
                 as ruas da borda não pareçam isoladas só porque o mapa acabou ali (efeito de borda). Os
-                resultados contam só dentro de Brusque; a faixa aparece esmaecida, em cinza.
+                resultados contam só dentro do município; a faixa aparece esmaecida, em cinza.
               </p>
               <p>
                 Todas as distâncias e áreas são medidas em <strong>SIRGAS 2000 / UTM 22S</strong>{" "}
@@ -274,7 +278,7 @@ export function MethodologyPage() {
               </div>
               <p>
                 Os valores viram <strong>7 classes por percentil ponderado pela extensão</strong>,
-                calculado só com os trechos de Brusque: cada cor cobre a mesma quantidade de quilômetros
+                calculado só com os trechos da cidade: cada cor cobre a mesma quantidade de quilômetros
                 de rua. Assim dá para comparar raios e datas (o depthmapX usa faixas de largura igual
                 entre o mínimo e o máximo, que mudam a cada mapa).
               </p>
@@ -315,7 +319,7 @@ export function MethodologyPage() {
                   próprio cenário reescalonariam tudo e esconderiam o efeito.
                 </li>
                 <li>
-                  O resumo conta os quilômetros de rua de Brusque que subiram ou caíram de classe, nos raios n
+                  O resumo conta os quilômetros de rua da cidade que subiram ou caíram de classe, nos raios n
                   e 800 m.
                 </li>
               </ul>
@@ -388,7 +392,7 @@ export function MethodologyPage() {
               </dl>
               <span className="label">COMO CITAR</span>
               <blockquote className="ct-cite">
-                BONFIM, Erick K. <em>quantumco: mapa sintático aberto de Brusque-SC</em>. Metodologia v
+                BONFIM, Erick K. <em>quantumco: mapa sintático aberto das cidades brasileiras</em>. Metodologia v
                 {version ?? "1.0.0-dev"}. Dados © OpenStreetMap contributors (ODbL). Disponível em:
                 https://quantumco.com.br. Acesso em: {today}.
               </blockquote>

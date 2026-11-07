@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router";
 
 import { QuantumcoIcon } from "../brand/QuantumcoIcon";
 import { Footer } from "../components/Footer";
@@ -14,6 +14,7 @@ import { ReleaseInfo } from "../features/release/ReleaseInfo";
 import { useSnapshotData } from "../features/release/useSnapshotData";
 import { type AddressHit, pinFor, SearchBox } from "../features/search/AddressSearch";
 import { LoadingScreen } from "../features/workspace/LoadingScreen";
+import { type City, CitySelect, cityPath, preferredCity, saveCity, useCities } from "../lib/city";
 import { useSession } from "../lib/session";
 import type { Measure, RadiusKey } from "../lib/types";
 
@@ -27,8 +28,37 @@ const ICONS = {
   fit: "M4 9V4h5 M20 9V4h-5 M4 15v5h5 M20 15v5h-5",
 } as const;
 
+/** `/map/:uf/:cidade`: o mapa de UMA cidade (troca pelo seletor; cada uma é independente). */
 export function PublicMap() {
-  const state = useSnapshotData();
+  const { uf = "", slug = "" } = useParams();
+  const cities = useCities();
+  if (cities.status === "loading") {
+    return <LoadingScreen name="" progress={20} step="CARREGANDO AS CIDADES" />;
+  }
+  if (cities.status === "error") {
+    return (
+      <div className="center-message">
+        <p>Não foi possível carregar as cidades: {cities.message}</p>
+        <Link to="/">← Voltar ao início</Link>
+      </div>
+    );
+  }
+  const city = cities.cities.find((c) => c.uf.toLowerCase() === uf.toLowerCase() && c.slug === slug);
+  if (!city) {
+    const other = preferredCity(cities.cities);
+    return (
+      <div className="center-message">
+        <p>Essa cidade ainda não está no quantumco.</p>
+        {other && <Link to={cityPath(other)}>Ver o mapa de {other.name} →</Link>}
+      </div>
+    );
+  }
+  // cada cidade monta um mapa novo: nada de uma passa para a outra
+  return <CityMap key={city.ibge_code} city={city} cities={cities.cities} />;
+}
+
+function CityMap({ city, cities }: { city: City; cities: City[] }) {
+  const state = useSnapshotData(city.ibge_code);
   const navigate = useNavigate();
   const { user } = useSession();
   const mapRef = useRef<MapViewHandle>(null);
@@ -42,9 +72,14 @@ export function PublicMap() {
   const [pin, setPin] = useState<AddressHit | null>(null);
   const pinOnMap = useMemo(() => pinFor(pin), [pin]);
 
+  useEffect(() => {
+    saveCity(city.ibge_code); // a próxima visita a /map volta para esta cidade
+    document.title = `QUANTUMCO · ${city.name}`;
+  }, [city]);
+
   const data = state.status === "ready" ? state.data : null;
 
-  // extensão de rua em Brusque (a faixa de entorno serve só ao cálculo)
+  // extensão de rua dentro do município (a faixa de entorno serve só ao cálculo)
   const totalKm = useMemo(
     () =>
       (data?.network.features ?? []).reduce(
@@ -63,7 +98,7 @@ export function PublicMap() {
     );
   }
   if (!data) {
-    return <LoadingScreen name="Brusque" progress={55} step="CARREGANDO A MALHA SINTÁTICA" />;
+    return <LoadingScreen name={city.name} progress={55} step="CARREGANDO A MALHA SINTÁTICA" />;
   }
 
   const radiusLabel = RADII.find((r) => r.key === radius)?.label ?? radius;
@@ -75,7 +110,7 @@ export function PublicMap() {
     { key: "select", title: "Selecionar trecho", on: true },
     { key: "draw", title: "Desenhar polígono (nos seus cenários)", on: false },
     { key: "layers", title: "Malha sintática", on: flags.net },
-    { key: "fit", title: "Enquadrar Brusque", on: false },
+    { key: "fit", title: `Enquadrar ${city.name}`, on: false },
   ];
 
   function handleTool(key: keyof typeof ICONS) {
@@ -91,8 +126,9 @@ export function PublicMap() {
           <QuantumcoIcon size={32} />
         </Link>
         <MapTabs active="mapa" polygonsTo={polygonsTo} />
+        <CitySelect cities={cities} value={city.ibge_code} label="Cidade do mapa" compact />
         <span className="spacer" />
-        <SearchBox className="only-desktop" mode="endereco" onAddress={setPin} />
+        <SearchBox city={city} className="only-desktop" mode="endereco" onAddress={setPin} />
         <MeasureSwitch measure={measure} onMeasure={setMeasure} className="only-desktop" />
         <UserMenu compact />
       </header>
@@ -125,7 +161,7 @@ export function PublicMap() {
             <span className="mini-value">{data.manifest.cleaning_report.links_kept.toLocaleString("pt-BR")}</span>
           </div>
           <div className="mini-card">
-            <span className="muted small">Ruas em Brusque</span>
+            <span className="muted small">Ruas em {city.name}</span>
             <span className="mini-value">
               {fmt(totalKm, 0)}
               <span className="muted small"> km</span>
@@ -165,6 +201,7 @@ export function PublicMap() {
       <main className="ws-map">
         <MapView
           ref={mapRef}
+          city={city.ibge_code}
           data={data}
           measure={measure}
           radius={radius}
@@ -177,20 +214,13 @@ export function PublicMap() {
           onOverlayError={(o) => setOverlayError(OPEN_LAYERS.find(([k]) => k === o)?.[1] ?? o)}
         />
         <div className="ws-overlay">
-          <h1>Brusque</h1>
-          <div className="ws-chips">
-            <span className="chip-dark">
-              <span className="dot-green" aria-hidden="true" />
-              Mapa sintático aberto · OpenStreetMap
-            </span>
-            <span className="chip-dark mono">{legendTitle}</span>
-          </div>
+          <h1>{city.name}</h1>
         </div>
         <div className="ws-zoom">
           <button type="button" aria-label="Aproximar" onClick={() => mapRef.current?.zoomIn()}>
             +
           </button>
-          <button type="button" aria-label="Enquadrar Brusque" onClick={() => mapRef.current?.fitAll()}>
+          <button type="button" aria-label={`Enquadrar ${city.name}`} onClick={() => mapRef.current?.fitAll()}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
               <circle cx="12" cy="12" r="7" />
               <circle cx="12" cy="12" r="2" />
@@ -204,10 +234,11 @@ export function PublicMap() {
       </main>
 
       <footer className="ws-status mono">
-        <span className="row-gap">
+        <span className="row-gap" title={`Metodologia v${data.manifest.methodology_version}`}>
           <span className="dot-green" aria-hidden="true" />
-          MALHA v{data.manifest.methodology_version}
+          QUANTUMCO v{__APP_VERSION__}
         </span>
+        <span>{legendTitle}</span>
         <span>{cursor}</span>
         <span>{selection ? `TRECHO #${selection.properties.link_id}` : "SELECIONAR"}</span>
         <span className="spacer" />

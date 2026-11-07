@@ -270,7 +270,7 @@ export function RunSection({ edits, run, offset, busy, error, measure, radius, v
                 </div>
               ) : null}
               <span className="muted-2 small">
-                {summaryKey ? `${MEASURE_LABEL[measure]} · R ${radiusText(summaryRadius)} · em Brusque · ` : ""}motor{" "}
+                {summaryKey ? `${MEASURE_LABEL[measure]} · R ${radiusText(summaryRadius)} · na cidade · ` : ""}motor{" "}
                 {duration(run.result.engine_seconds)}
               </span>
               <span className="muted-2 small">

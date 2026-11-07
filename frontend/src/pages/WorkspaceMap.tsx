@@ -27,6 +27,7 @@ import { medianClass } from "../features/workspace/geometry";
 import { LayerStack } from "../features/workspace/LayerStack";
 import { LoadingScreen } from "../features/workspace/LoadingScreen";
 import { api, ApiError, apiCached } from "../lib/api";
+import { cityApi } from "../lib/city";
 import type {
   NetworkEdit,
   PolygonCollection,
@@ -138,10 +139,10 @@ export function WorkspaceMap() {
     };
   }, [doneRunId, id, result, finishedLive, showView]);
 
-  const loadStats = useCallback(async (features: Workspace["features"]) => {
+  const loadStats = useCallback(async (city: string, features: Workspace["features"]) => {
     const entries = await Promise.all(
       features.map(async (f) => {
-        const result = await api<PolygonStats>("syntax/polygon-stats", {
+        const result = await api<PolygonStats>(cityApi(city, "syntax/polygon-stats"), {
           method: "POST",
           json: { coordinates: f.geometry.coordinates[0] },
         }).catch(() => null);
@@ -157,9 +158,9 @@ export function WorkspaceMap() {
 
   useEffect(() => {
     const polygon = workspace?.features.find((f) => f.properties.id === selectedId);
-    if (!polygon || profiles[polygon.properties.id]) return;
+    if (!workspace || !polygon || profiles[polygon.properties.id]) return;
     const key = polygon.properties.id;
-    api<TerritoryProfile>("territory/polygon-profile", {
+    api<TerritoryProfile>(cityApi(workspace.ibge_code, "territory/polygon-profile"), {
       method: "POST",
       json: { coordinates: polygon.geometry.coordinates[0] },
     })
@@ -181,19 +182,24 @@ export function WorkspaceMap() {
           }
           return ws;
         });
-        const baseReq = Promise.all([
-          apiCached<Manifest>("network/manifest"),
-          apiCached<MunicipalityCollection>("network/municipality"),
-        ]).then((r) => (setStep((n) => Math.max(n, 2)), r));
-        const syntaxReq = Promise.all([
-          apiCached<AnalysisManifest>("syntax/manifest"),
-          apiCached<NetworkCollection>("syntax/links"),
-        ]).then((r) => (setStep((n) => Math.max(n, 3)), r));
+        // a rede e a análise são as da cidade do cenário
+        const baseReq = wsReq.then((ws) =>
+          Promise.all([
+            apiCached<Manifest>(cityApi(ws.ibge_code, "network/manifest")),
+            apiCached<MunicipalityCollection>(cityApi(ws.ibge_code, "network/municipality")),
+          ]).then((r) => (setStep((n) => Math.max(n, 2)), r)),
+        );
+        const syntaxReq = wsReq.then((ws) =>
+          Promise.all([
+            apiCached<AnalysisManifest>(cityApi(ws.ibge_code, "syntax/manifest")),
+            apiCached<NetworkCollection>(cityApi(ws.ibge_code, "syntax/links")),
+          ]).then((r) => (setStep((n) => Math.max(n, 3)), r)),
+        );
         const [ws, [manifest, municipality], [analysis, network]] = await Promise.all([wsReq, baseReq, syntaxReq]);
         if (!alive) return;
         setData({ manifest, municipality, network, analysis, scenario: null });
         setStep(4);
-        void loadStats(ws.features);
+        void loadStats(ws.ibge_code, ws.features);
       } catch (err) {
         if (alive) setError(err instanceof ApiError ? err.message : String(err));
       }
@@ -231,7 +237,7 @@ export function WorkspaceMap() {
         json: { coordinates: ring },
       });
       const ws = await refresh();
-      await loadStats(ws.features.filter((f) => f.properties.id === created.id));
+      await loadStats(ws.ibge_code, ws.features.filter((f) => f.properties.id === created.id));
       setSelectedId(created.id);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -323,6 +329,7 @@ export function WorkspaceMap() {
     );
   }
 
+  const cityName = workspace.city.split(",")[0] ?? workspace.city;
   const selected = polygons.features.find((f) => f.properties.id === selectedId) ?? null;
   const q = query.trim().toLowerCase();
   const visible = polygons.features.filter(
@@ -371,7 +378,7 @@ export function WorkspaceMap() {
     { key: "select", title: "Selecionar", on: tool === "select" },
     { key: "draw", title: "Desenhar polígono", on: tool === "draw" },
     { key: "layers", title: "Malha sintática", on: flags.net },
-    { key: "fit", title: "Enquadrar Brusque", on: false },
+    { key: "fit", title: `Enquadrar ${cityName}`, on: false },
   ];
 
   function handleTool(key: keyof typeof ICONS) {
@@ -401,6 +408,7 @@ export function WorkspaceMap() {
         <MapTabs active="poligonos" polygonsTo={`/painel/cenario/${id}`} />
         <span className="spacer" />
         <SearchBox
+          city={{ ibge_code: workspace.ibge_code, name: cityName }}
           className="only-desktop"
           modes={["endereco", "poligono"]}
           mode={searchMode}
@@ -597,7 +605,7 @@ export function WorkspaceMap() {
         </div>
 
         <BasemapPicker basemap={basemap} onBasemap={setBasemap} />
-        <LayerToggles flags={flags} onToggle={toggle} withPolygons error={overlayError} />
+        <LayerToggles flags={flags} onToggle={toggle} withPolygons withListings error={overlayError} />
 
         <div className="ws-embed">
           <ReleaseInfo manifest={data.manifest} analysis={data.analysis} />
@@ -608,6 +616,7 @@ export function WorkspaceMap() {
       <main className="ws-map">
         <MapView
           ref={mapRef}
+          city={workspace.ibge_code}
           camera={camera}
           data={mapData}
           measure={measure}
@@ -635,7 +644,9 @@ export function WorkspaceMap() {
           }}
           onDraftChange={setDraftVertices}
           onCursor={([lng, lat], zoom) => setCursor(`${fmt(lat, 5)}, ${fmt(lng, 5)} · zoom ${fmt(zoom, 1)}`)}
-          onOverlayError={(o) => setOverlayError(OPEN_LAYERS.find(([k]) => k === o)?.[1] ?? o)}
+          onOverlayError={(o) =>
+            setOverlayError(o === "imoveis" ? "Imóveis à venda" : (OPEN_LAYERS.find(([k]) => k === o)?.[1] ?? o))
+          }
         />
         <div className="ws-overlay">
           <h1>{workspace.name}</h1>
@@ -650,17 +661,14 @@ export function WorkspaceMap() {
                 {workspace.edits.length} {workspace.edits.length === 1 ? "edição" : "edições"} na rede
               </span>
             )}
-            <span className="chip-dark mono">
-              {showingResult ? `CENÁRIO · ${view === "cenario" ? "VALORES" : "DIFERENÇA"} · ` : ""}
-              {legendTitle}
-            </span>
+
           </div>
         </div>
         <div className="ws-zoom">
           <button type="button" aria-label="Aproximar" onClick={() => mapRef.current?.zoomIn()}>
             +
           </button>
-          <button type="button" aria-label="Enquadrar Brusque" onClick={() => mapRef.current?.fitAll()}>
+          <button type="button" aria-label={`Enquadrar ${cityName}`} onClick={() => mapRef.current?.fitAll()}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
               <circle cx="12" cy="12" r="7" />
               <circle cx="12" cy="12" r="2" />
@@ -687,9 +695,14 @@ export function WorkspaceMap() {
       </main>
 
       <footer className="ws-status mono">
-        <span className="row-gap">
+        <span className="row-gap" title={`Metodologia v${data.manifest.methodology_version}`}>
           <span className="dot-green" aria-hidden="true" />
-          MALHA v{data.manifest.methodology_version}
+          QUANTUMCO v{__APP_VERSION__}
+        </span>
+        <span title="A cidade é escolhida ao criar o cenário e não muda">{workspace.city.toUpperCase()}</span>
+        <span>
+          {showingResult ? `CENÁRIO · ${view === "cenario" ? "VALORES" : "DIFERENÇA"} · ` : ""}
+          {legendTitle}
         </span>
         <span>{cursor}</span>
         <span>
