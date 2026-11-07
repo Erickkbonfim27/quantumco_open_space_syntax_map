@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 from quantumco.road_network.application.ports import (
+    CityRegistry,
     MethodologyProvider,
     OsmWaySource,
     SnapshotRepository,
@@ -19,6 +20,7 @@ from quantumco.road_network.domain.topology import (
     keep_largest_component,
     split_into_links,
 )
+from quantumco.shared_kernel.city import city_code
 from quantumco.shared_kernel.clock import Clock
 
 log = logging.getLogger(__name__)
@@ -40,6 +42,10 @@ class BuildSnapshotResult:
     location: str
 
 
+class UnknownCityError(LookupError):
+    pass
+
+
 class BuildSnapshot:
     """Caso de uso: extrato do OSM → filtro → topologia → maior componente → snapshot."""
 
@@ -49,22 +55,34 @@ class BuildSnapshot:
         methodology: MethodologyProvider,
         repository: SnapshotRepository,
         clock: Clock,
+        cities: CityRegistry,
     ) -> None:
         self._source = source
         self._methodology = methodology
         self._repository = repository
         self._clock = clock
+        self._cities = cities
 
-    def __call__(self, variant: FilterVariant = FilterVariant.BASE) -> BuildSnapshotResult:
+    def __call__(
+        self, ibge_code: str, variant: FilterVariant = FilterVariant.BASE
+    ) -> BuildSnapshotResult:
         started = time.perf_counter()
-        area = self._methodology.study_area()
+        city = self._cities.get(city_code(ibge_code))
+        if city is None:
+            raise UnknownCityError(
+                f"cidade {ibge_code} fora do cadastro; "
+                f"rode `quantumco cidade adicionar {ibge_code}`"
+            )
+        area = city.study_area()
         highway_filter = self._methodology.highway_filter()
         log.info(
-            "metodologia %s, filtro %s/%s, IBGE %s",
+            "%s: metodologia %s, filtro %s/%s, IBGE %s, relação OSM %d",
+            city.label,
             self._methodology.version(),
             highway_filter.version,
             variant.value,
             area.ibge_code,
+            area.osm_relation_id,
         )
 
         with _stage(1, "baixando o OSM"):

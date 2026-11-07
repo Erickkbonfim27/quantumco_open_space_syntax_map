@@ -67,8 +67,12 @@ class RunScenario:
         edits: Sequence[Edit],
         on_stage: Callable[[str], None] | None = None,
         radii: Sequence[str] | None = None,
+        *,
+        ibge_code: str,
     ) -> tuple[ScenarioResult, str]:
         """`on_stage` recebe loading, editing, engine, comparing e saving, nessa ordem.
+
+        `ibge_code`: a cidade; a base é a análise publicada dela.
 
         `radii`: chaves dos raios a recalcular (padrão: todos). Sem "n", só a região que a edição
         pode alterar é recalculada (exato; ver domain/scope.py) e o resto fica com a base.
@@ -84,9 +88,12 @@ class RunScenario:
         selected = tuple(r for r in cfg.radii if r.key in keys)
         local = is_local(keys)
         stage("loading")
-        base = self._base.current()
+        base = self._base.current(ibge_code)
         if base is None:
-            raise NoBaseAnalysisError("nenhuma análise publicada; rode `quantumco coldstart`")
+            raise NoBaseAnalysisError(
+                f"a cidade {ibge_code} não tem análise publicada; "
+                f"rode `quantumco cidade processar {ibge_code}`"
+            )
         log.info("[1/4] base %s: %d trechos", base.analysis_id, len(base.links))
 
         stage("editing")
@@ -125,7 +132,9 @@ class RunScenario:
             region.live_count if region else len(pieces),
         )
         t_engine = time.perf_counter()
-        run = self._analyzer.analyze(pieces, distances, live=region.live if region else None)
+        run = self._analyzer.analyze(
+            pieces, distances, live=region.live if region else None, crs_epsg=base.crs_epsg
+        )
         engine_s = time.perf_counter() - t_engine
         log.info("[3/4] %s %s: ok em %.1fs", run.engine, run.engine_version, engine_s)
 
@@ -150,6 +159,7 @@ class RunScenario:
         ]
         manifest = {
             "name": name,
+            "ibge_code": base.ibge_code,
             "base_analysis_id": base.analysis_id,
             "methodology_version": cfg.methodology_version,
             "preliminary": cfg.preliminary,
@@ -172,6 +182,8 @@ class RunScenario:
             name=name,
             base_analysis_id=base.analysis_id,
             snapshot_id=base.snapshot_id,
+            ibge_code=base.ibge_code,
+            crs_epsg=base.crs_epsg,
             edits=[_edit_json(e) for e in edits],
             rows=list(rows.items()),
             new_links=new_links,

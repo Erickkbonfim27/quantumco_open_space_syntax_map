@@ -1,4 +1,4 @@
-"""Adaptador `OsmWaySource` via Overpass API.
+"""Adaptadores `OsmWaySource` e `BoundaryLocator` via Overpass API.
 
 O carimbo `timestamp_osm_base` da resposta vai para o snapshot. Para reproduzir um extrato
 antigo, passe `as_of` (consulta "attic" do Overpass com `[date:...]`).
@@ -17,11 +17,12 @@ from pyproj import Transformer
 from shapely.geometry import LineString, MultiPolygon, Polygon
 from shapely.ops import polygonize, transform, unary_union
 
+from quantumco.road_network.application.ports import BoundaryRef
 from quantumco.road_network.domain.osm import OsmExtract, OsmWay
 from quantumco.road_network.domain.study_area import StudyArea
 
 DEFAULT_URL = "https://overpass-api.de/api/interpreter"
-USER_AGENT = "quantumco/0.1 (mapa sintatico aberto de Brusque)"
+USER_AGENT = "quantumco/1.0 (mapa sintatico aberto; +https://quantumco.com.br)"
 _RETRYABLE = frozenset({429, 502, 503, 504})
 
 log = logging.getLogger(__name__)
@@ -88,6 +89,28 @@ class OverpassWaySource:
         if "remark" in payload and "runtime error" in str(payload["remark"]):
             raise OverpassError(str(payload["remark"]))
         return payload
+
+    def find(self, ibge_code: str) -> BoundaryRef | None:
+        """Relação do limite municipal pelo código IBGE (nunca pelo nome, Q14)."""
+        payload = self._query(
+            'rel["boundary"="administrative"]["admin_level"="8"]'
+            f'["IBGE:GEOCODIGO"="{ibge_code}"];out ids center;',
+            label=f"limite IBGE {ibge_code}",
+        )
+        relations = [el for el in payload["elements"] if el["type"] == "relation"]
+        if len(relations) != 1:
+            if relations:
+                log.warning(
+                    "IBGE %s: %d relações no OSM; nenhuma escolhida", ibge_code, len(relations)
+                )
+            return None
+        center = relations[0].get("center") or {}
+        if "lon" not in center:
+            return None
+        return BoundaryRef(
+            osm_relation_id=int(relations[0]["id"]),
+            center=(float(center["lon"]), float(center["lat"])),
+        )
 
     def fetch(self, area: StudyArea) -> OsmExtract:
         to_crs = Transformer.from_crs(4326, area.crs_epsg, always_xy=True)

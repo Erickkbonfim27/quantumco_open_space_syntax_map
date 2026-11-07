@@ -15,7 +15,7 @@ class SyntaxMap:
 
 
 class SyntaxMapReader(Protocol):
-    def current(self) -> SyntaxMap | None: ...
+    def current(self, ibge_code: str) -> SyntaxMap | None: ...
 
 
 class NoAnalysisError(LookupError):
@@ -26,10 +26,12 @@ class GetSyntaxMap:
     def __init__(self, reader: SyntaxMapReader) -> None:
         self._reader = reader
 
-    def __call__(self) -> SyntaxMap:
-        current = self._reader.current()
+    def __call__(self, ibge_code: str) -> SyntaxMap:
+        current = self._reader.current(ibge_code)
         if current is None:
-            raise NoAnalysisError("nenhuma análise sintática; rode `quantumco analysis run`")
+            raise NoAnalysisError(
+                f"a cidade {ibge_code} não tem análise sintática; rode `quantumco analysis run`"
+            )
         return current
 
 
@@ -65,8 +67,8 @@ class GetScenario:
 
 
 class PolygonStatsReader(Protocol):
-    def stats(self, ring: list[tuple[float, float]]) -> Mapping[str, Any] | None:
-        """Camadas N1 (território) e N5 (rede) para um polígono em (lon, lat)."""
+    def stats(self, ibge_code: str, ring: list[tuple[float, float]]) -> Mapping[str, Any] | None:
+        """Camadas N1 (território) e N5 (rede) para um polígono em (lon, lat), na cidade."""
         ...
 
 
@@ -74,8 +76,8 @@ class GetPolygonStats:
     def __init__(self, reader: PolygonStatsReader) -> None:
         self._reader = reader
 
-    def __call__(self, ring: list[tuple[float, float]]) -> Mapping[str, Any]:
-        result = self._reader.stats(ring)
+    def __call__(self, ibge_code: str, ring: list[tuple[float, float]]) -> Mapping[str, Any]:
+        result = self._reader.stats(ibge_code, ring)
         if result is None:
-            raise NoAnalysisError("nenhuma análise sintática publicada")
+            raise NoAnalysisError(f"a cidade {ibge_code} não tem análise sintática publicada")
         return result

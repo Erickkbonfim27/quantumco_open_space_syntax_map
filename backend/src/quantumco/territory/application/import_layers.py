@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from quantumco.shared_kernel.clock import Clock
 from quantumco.territory.application.ports import LayerSource, TerritoryRepository
+from quantumco.territory.domain.city import TerritoryCity
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +33,10 @@ class ImportTerritory:
     def names(self) -> list[str]:
         return [s.name for s in self._sources]
 
-    def __call__(self, only: Sequence[str] | None = None) -> list[ImportReport]:
+    def __call__(
+        self, city: TerritoryCity, only: Sequence[str] | None = None
+    ) -> list[ImportReport]:
+        """Importa as fontes para a cidade; as camadas das outras cidades ficam como estão."""
         chosen = [s for s in self._sources if not only or s.name in only]
         unknown = set(only or ()) - {s.name for s in self._sources}
         if unknown:
@@ -40,14 +44,17 @@ class ImportTerritory:
         reports: list[ImportReport] = []
         for i, source in enumerate(chosen, 1):
             started = time.perf_counter()
-            log.info("[%d/%d] %s: baixando e normalizando…", i, len(chosen), source.name)
-            for data in source.fetch():
+            log.info(
+                "[%d/%d] %s: baixando e normalizando (%s)…",
+                i, len(chosen), source.name, city.label,
+            )  # fmt: skip
+            for data in source.fetch(city):
                 log.info(
                     "[%d/%d] %s → camada %s: %d registros; gravando…",
                     i, len(chosen), source.name, data.layer, data.rows,
                 )  # fmt: skip
                 t0 = time.perf_counter()
-                self._repository.replace(data, self._clock.now())
+                self._repository.replace(city.ibge_code, data, self._clock.now())
                 seconds = time.perf_counter() - t0
                 log.info("[%d/%d] camada %s gravada em %.1fs", i, len(chosen), data.layer, seconds)
                 reports.append(ImportReport(data.layer, data.rows, round(seconds, 1)))

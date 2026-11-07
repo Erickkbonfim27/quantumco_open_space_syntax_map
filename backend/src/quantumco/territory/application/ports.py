@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
+from quantumco.territory.domain.city import TerritoryCity
 from quantumco.territory.domain.profile import BuildingStats, GridStat, TractOverlap, ZoneOverlap
 from quantumco.territory.domain.records import LayerData
 
@@ -12,20 +13,22 @@ Ring = Sequence[tuple[float, float]]
 
 
 class LayerSource(Protocol):
-    """Baixa e normaliza uma fonte aberta. Uma fonte pode render várias camadas (ex.: SGB)."""
+    """Baixa e normaliza uma fonte aberta para uma cidade. Uma fonte pode render várias camadas
+    (ex.: SGB)."""
 
     @property
     def name(self) -> str: ...
 
-    def fetch(self) -> Sequence[LayerData]: ...
+    def fetch(self, city: TerritoryCity) -> Sequence[LayerData]: ...
 
 
 class TerritoryRepository(Protocol):
-    def replace(self, data: LayerData, fetched_at: datetime) -> None:
-        """Substitui a camada inteira numa transação (quem lê nunca vê camada pela metade)."""
+    def replace(self, ibge_code: str, data: LayerData, fetched_at: datetime) -> None:
+        """Substitui a camada DA CIDADE numa transação (quem lê nunca vê camada pela metade;
+        as outras cidades não mudam)."""
         ...
 
-    def layers(self) -> Sequence[Mapping[str, Any]]: ...
+    def layers(self, ibge_code: str) -> Sequence[Mapping[str, Any]]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,24 +67,26 @@ class PolygonOverlaps:
 
 
 class TerritoryReader(Protocol):
-    def overlaps(self, ring: Ring) -> PolygonOverlaps | None:
-        """None quando nenhuma camada territorial foi importada ainda."""
+    """Leituras sempre de UMA cidade (o código IBGE é o primeiro argumento de todas)."""
+
+    def overlaps(self, ibge_code: str, ring: Ring) -> PolygonOverlaps | None:
+        """None quando nenhuma camada territorial da cidade foi importada ainda."""
         ...
 
-    def layers(self) -> Sequence[Mapping[str, Any]]: ...
+    def layers(self, ibge_code: str) -> Sequence[Mapping[str, Any]]: ...
 
-    def map_layer(self, name: str) -> bytes | None:
+    def map_layer(self, ibge_code: str, name: str) -> bytes | None:
         """FeatureCollection (GeoJSON WGS84) de uma camada para o mapa da cidade inteira."""
         ...
 
-    def images(self) -> Sequence[Mapping[str, Any]]:
+    def images(self, ibge_code: str) -> Sequence[Mapping[str, Any]]:
         """Imagens prontas para o mapa: camada, limites (WGS84) e legenda."""
         ...
 
-    def image(self, layer: str) -> bytes | None:
+    def image(self, ibge_code: str, layer: str) -> bytes | None:
         """PNG de uma camada da grade; None se não houver."""
         ...
 
-    def building_tile(self, z: int, x: int, y: int) -> bytes:
+    def building_tile(self, ibge_code: str, z: int, x: int, y: int) -> bytes:
         """Tile vetorial (MVT) das edificações; vazio quando não há prédio no tile."""
         ...

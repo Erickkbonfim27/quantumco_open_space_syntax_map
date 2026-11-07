@@ -33,6 +33,16 @@ def ingest_cnpj(competencia: str | None = None) -> dict[str, int]:
     return report.summary
 
 
+def process_city(
+    ibge_code: str, territory: bool = True, only: list[str] | None = None
+) -> dict[str, object]:
+    """Processa uma cidade (fila `dados`): rede, análise, território e publicação, na VPS."""
+    from quantumco.bootstrap.city_pipeline import process_city as run  # noqa: PLC0415
+
+    load_env_file()
+    return run(Settings.from_env(), ibge_code, territory=territory, only=only)
+
+
 def execute_run(run_id: str) -> str | None:
     job = get_current_job()
     worker = (job.worker_name if job else None) or f"{socket.gethostname()}:{os.getpid()}"

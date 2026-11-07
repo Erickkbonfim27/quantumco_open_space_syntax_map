@@ -17,6 +17,8 @@ class AnalysisInput:
     snapshot_id: str
     snapshot_name: str
     links: tuple[Link, ...]
+    ibge_code: str
+    crs_epsg: int  # CRS métrico do snapshot (as coordenadas dos trechos estão nele)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +40,9 @@ class EngineRun:
 
 
 class NetworkSnapshotSource(Protocol):
-    def latest(self) -> AnalysisInput | None: ...
+    def latest(self, ibge_code: str) -> AnalysisInput | None:
+        """O snapshot publicado da cidade."""
+        ...
 
 
 class AngularAnalyzer(Protocol):
@@ -47,8 +51,10 @@ class AngularAnalyzer(Protocol):
         pieces: Sequence[Piece],
         distances_m: Sequence[int],
         live: Sequence[bool] | None = None,
+        crs_epsg: int | None = None,
     ) -> EngineRun:
-        """`live`: retas que são origem (None = todas); as outras entram só como caminho."""
+        """`live`: retas que são origem (None = todas); as outras entram só como caminho.
+        `crs_epsg`: CRS métrico das retas (None = o padrão do motor)."""
         ...
 
 
@@ -59,6 +65,7 @@ class AnalysisResult:
     link_ids: tuple[str, ...]
     columns: Mapping[str, FloatArray]  # nain_800, nach_n, c_nain_800 (classe 0..6) …
     manifest: Mapping[str, Any]
+    ibge_code: str
 
 
 class AnalysisRepository(Protocol):
@@ -73,10 +80,14 @@ class BaseAnalysis:
     snapshot_id: str
     links: tuple[Link, ...]
     values: Mapping[str, FloatArray]  # nain_n, nach_800, … alinhados a `links`
+    ibge_code: str
+    crs_epsg: int
 
 
 class BaseAnalysisSource(Protocol):
-    def current(self) -> BaseAnalysis | None: ...
+    def current(self, ibge_code: str) -> BaseAnalysis | None:
+        """A análise publicada da cidade."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +95,8 @@ class ScenarioResult:
     name: str
     base_analysis_id: str
     snapshot_id: str
+    ibge_code: str
+    crs_epsg: int  # das coordenadas das ruas novas
     edits: Sequence[Mapping[str, Any]]
     rows: Sequence[tuple[str, Mapping[str, float | int | bool | None]]]  # (trecho, medidas)
     new_links: Sequence[tuple[str, Sequence[tuple[float, float]]]]

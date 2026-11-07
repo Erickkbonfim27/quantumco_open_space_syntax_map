@@ -3,26 +3,35 @@
 Em produção: `uvicorn quantumco.entrypoints.api.app:create_app --factory`.
 """
 
-from __future__ import annotations
+# sem `from __future__ import annotations`: o FastAPI precisa resolver `City` (alias local com a
+# dependência da cidade) em tempo de execução
 
 import functools
 import logging
-from typing import Any
+from collections.abc import Callable
+from typing import Annotated, Any
 
-from fastapi import APIRouter, FastAPI, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
+from quantumco.bootstrap.listings import listings_map_query
 from quantumco.bootstrap.platform import Platform, build_platform
-from quantumco.bootstrap.road_network import current_network_query
+from quantumco.bootstrap.road_network import city_list_query, current_network_query
 from quantumco.bootstrap.settings import Settings, load_env_file
 from quantumco.bootstrap.syntax_analysis import scenario_query, syntax_map_query
 from quantumco.bootstrap.territory import address_search_query, territory_profile_query
-from quantumco.entrypoints.api.platform_routes import platform_router
+from quantumco.entrypoints.api.city_routes import city_dependencies, city_router
+from quantumco.entrypoints.api.listings_routes import listings_router
+from quantumco.entrypoints.api.platform_routes import COOKIE, platform_router
 from quantumco.entrypoints.api.territory_routes import territory_router
+from quantumco.identity.domain.user import User
+from quantumco.listings.application.queries import ListingsForMap
 from quantumco.road_network.application.queries import (
     GetCurrentNetwork,
+    ListCities,
+    NoCityError,
     NoSnapshotError,
     PublishedNetwork,
 )
@@ -35,6 +44,16 @@ from quantumco.syntax_analysis.application.queries import (
 from quantumco.territory.application.queries import GetPolygonProfile, SearchAddresses
 
 log = logging.getLogger(__name__)
+
+
+def _app_version() -> str:
+    from importlib.metadata import PackageNotFoundError, version  # noqa: PLC0415
+
+    try:
+        return version("quantumco")
+    except PackageNotFoundError:
+        return "dev"
+
 
 GEOJSON = "application/geo+json"
 CACHE_CONTROL = "public, max-age=300"
@@ -49,6 +68,8 @@ def create_app(
     platform: Platform | None = None,
     territory: GetPolygonProfile | None = None,
     addresses: SearchAddresses | None = None,
+    cities: ListCities | None = None,
+    listings: ListingsForMap | None = None,
 ) -> FastAPI:
     if settings is None:
         load_env_file()
@@ -61,8 +82,8 @@ def create_app(
 
     app = FastAPI(
         title="quantumco API",
-        description="Mapa sintático aberto de Brusque-SC",
-        version="0.1.0",
+        description="Mapa sintático aberto das cidades brasileiras (começando por Brusque-SC)",
+        version=_app_version(),
     )
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     if settings.cors_origins:
@@ -75,6 +96,11 @@ def create_app(
         )
 
     query = network_query or current_network_query(settings)
+    catalog = cities or city_list_query(settings)
+
+    @app.exception_handler(NoCityError)
+    async def no_city(_: Request, error: NoCityError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(error)})
 
     @app.exception_handler(NoSnapshotError)
     async def no_snapshot(_: Request, error: NoSnapshotError) -> JSONResponse:
@@ -90,21 +116,29 @@ def create_app(
 
     @app.get("/health", tags=["operação"])
     def health() -> dict[str, Any]:
-        try:
-            network = query()
-        except NoSnapshotError:
-            return {"status": "ok", "snapshot": None}
-        return {"status": "ok", "snapshot": network.snapshot_id}
+        published = catalog()
+        return {
+            "status": "ok",
+            "cities": {c.ibge_code: c.snapshot_id for c in published},
+        }
 
-    app.include_router(_network_router(query), prefix="/api/v1/network")
-    app.include_router(
-        _syntax_router(syntax_query or syntax_map_query(settings)), prefix="/api/v1/syntax"
-    )
+    syntax = syntax_query or syntax_map_query(settings)
+    path_city, legacy_city = city_dependencies(catalog)
+    app.include_router(city_router(catalog), prefix="/api/v1")
+    # a cidade vai no caminho; as rotas antigas (sem cidade) respondem Brusque até o site novo
+    for prefix, city, old in (
+        ("/api/v1/cities/{ibge_code}", path_city, False),
+        ("/api/v1", legacy_city, True),
+    ):
+        app.include_router(_network_router(query, city), prefix=f"{prefix}/network", deprecated=old)
+        app.include_router(_syntax_router(syntax, city), prefix=f"{prefix}/syntax", deprecated=old)
+
     scenario_reader = scenarios or scenario_query(settings)
     app.include_router(_scenario_router(scenario_reader), prefix="/api/v1/scenarios")
+    platform = platform or build_platform(settings)
     app.include_router(
         platform_router(
-            platform or build_platform(settings),
+            platform,
             scenario_reader,
             secure=settings.cookie_secure,
             owner_email=settings.owner_email,
@@ -117,9 +151,28 @@ def create_app(
         if addresses
         else functools.cache(lambda: address_search_query(settings))
     )
+    profile = territory or territory_profile_query(settings)
     app.include_router(
-        territory_router(territory or territory_profile_query(settings), search),
-        prefix="/api/v1",
+        territory_router(profile, search, path_city), prefix="/api/v1/cities/{ibge_code}"
+    )
+    app.include_router(
+        territory_router(profile, search, legacy_city), prefix="/api/v1", deprecated=True
+    )
+
+    # imóveis à venda (prova de conceito, docs/adr/0003): só com login e com a flag ligada
+    auth = platform.auth
+
+    def listing_user(request: Request) -> User:
+        user = auth.current_user(request.cookies.get(COOKIE))
+        if user is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sessão expirada. Entre de novo.")
+        return user
+
+    listing_query = (
+        (lambda: listings) if listings else functools.cache(lambda: listings_map_query(settings))
+    )
+    app.include_router(
+        listings_router(listing_query, path_city, listing_user), prefix="/api/v1/cities/{ibge_code}"
     )
     return app
 
@@ -153,20 +206,21 @@ def _scenario_router(query: GetScenario) -> APIRouter:
     return router
 
 
-def _syntax_router(query: GetSyntaxMap) -> APIRouter:
+def _syntax_router(query: GetSyntaxMap, city_of: Callable[..., str]) -> APIRouter:
     router = APIRouter(tags=["análise sintática"])
+    City = Annotated[str, Depends(city_of)]  # noqa: N806 - alias de tipo
 
     @router.get("/manifest")
-    def manifest() -> JSONResponse:
-        current = query()
+    def manifest(city: City) -> JSONResponse:
+        current = query(city)
         return JSONResponse(
             content=dict(current.manifest),
             headers={"ETag": f'"{current.analysis_id}"', "Cache-Control": CACHE_CONTROL},
         )
 
     @router.get("/links", response_class=Response)
-    def links(request: Request) -> Response:
-        current = query()
+    def links(request: Request, city: City) -> Response:
+        current = query(city)
         etag = f'"{current.analysis_id}"'
         headers = {"ETag": etag, "Cache-Control": CACHE_CONTROL}
         if request.headers.get("if-none-match") == etag:
@@ -176,8 +230,9 @@ def _syntax_router(query: GetSyntaxMap) -> APIRouter:
     return router
 
 
-def _network_router(query: GetCurrentNetwork) -> APIRouter:
+def _network_router(query: GetCurrentNetwork, city_of: Callable[..., str]) -> APIRouter:
     router = APIRouter(tags=["rede viária"])
+    City = Annotated[str, Depends(city_of)]  # noqa: N806 - alias de tipo
 
     def cached(request: Request, network: PublishedNetwork, body: bytes, media: str) -> Response:
         etag = f'"{network.snapshot_id}"'
@@ -187,21 +242,21 @@ def _network_router(query: GetCurrentNetwork) -> APIRouter:
         return Response(content=body, media_type=media, headers=headers)
 
     @router.get("/manifest")
-    def manifest(request: Request) -> Response:
-        network = query()
+    def manifest(city: City) -> Response:
+        network = query(city)
         return JSONResponse(
             content=dict(network.manifest),
             headers={"ETag": f'"{network.snapshot_id}"', "Cache-Control": CACHE_CONTROL},
         )
 
     @router.get("/links", response_class=Response)
-    def links(request: Request) -> Response:
-        network = query()
+    def links(request: Request, city: City) -> Response:
+        network = query(city)
         return cached(request, network, network.links_geojson, GEOJSON)
 
     @router.get("/municipality", response_class=Response)
-    def municipality(request: Request) -> Response:
-        network = query()
+    def municipality(request: Request, city: City) -> Response:
+        network = query(city)
         return cached(request, network, network.municipality_geojson, GEOJSON)
 
     return router

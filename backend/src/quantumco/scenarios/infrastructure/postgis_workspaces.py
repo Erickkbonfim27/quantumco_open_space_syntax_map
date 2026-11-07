@@ -31,6 +31,7 @@ class PostgisWorkspaceRepository:
             Workspace(
                 r[0],
                 r[1],
+                r[8],
                 r[2],
                 Measure(r[3]),
                 Status(r[4]),
@@ -43,8 +44,8 @@ class PostgisWorkspaceRepository:
         ]
 
     _SELECT = (
-        "select workspace_id, owner_id, name, measure, status, created_at, updated_at, edits "
-        "from scenarios.workspaces "
+        "select workspace_id, owner_id, name, measure, status, created_at, updated_at, edits, "
+        "ibge_code from scenarios.workspaces "
     )
 
     def list_for(self, owner_id: UUID) -> list[Workspace]:
@@ -65,14 +66,16 @@ class PostgisWorkspaceRepository:
     def save(self, workspace: Workspace) -> None:
         with self._pool.connection() as conn, conn.transaction():
             conn.execute(
-                "insert into scenarios.workspaces (workspace_id, owner_id, name, measure, status, "
-                "created_at, updated_at, edits) values (%s, %s, %s, %s, %s, %s, %s, %s) "
+                "insert into scenarios.workspaces (workspace_id, owner_id, ibge_code, name, "
+                "measure, status, created_at, updated_at, edits) "
+                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
                 "on conflict (workspace_id) do update set name = excluded.name, "
                 "measure = excluded.measure, status = excluded.status, "
                 "updated_at = excluded.updated_at, edits = excluded.edits",
                 (
                     workspace.workspace_id,
                     workspace.owner_id,
+                    workspace.ibge_code,
                     workspace.name,
                     workspace.measure.value,
                     workspace.status.value,

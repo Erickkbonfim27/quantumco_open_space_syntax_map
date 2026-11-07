@@ -6,15 +6,17 @@ from quantumco.bootstrap.settings import Settings
 from quantumco.entrypoints.api.app import create_app
 from quantumco.road_network.application.queries import GetCurrentNetwork
 from quantumco.syntax_analysis.application.queries import GetScenario, GetSyntaxMap
+from quantumco.territory.application.queries import GetPolygonProfile
 
-from ..fakes import platform, territory
+from ..fakes import TerritoryReader, cities, platform, territory
 from ..support import METHODOLOGY_V1
 from .test_api import NetworkReader, ScenarioReader, SyntaxReader
 
-RING = [[-48.92, -27.10], [-48.91, -27.10], [-48.91, -27.09], [-48.92, -27.10]]
+RING = [[-48.92, -27.10], [-48.91, -27.10], [-48.91, -27.09], [-48.92, -27.10]]  # Brusque
+RING_ITAPEMA = [[-48.62, -27.09], [-48.61, -27.09], [-48.61, -27.08], [-48.62, -27.09]]
 
 
-def client() -> TestClient:
+def client(reader: TerritoryReader | None = None) -> TestClient:
     settings = Settings.from_env(
         {"QC_METHODOLOGY_DIR": str(METHODOLOGY_V1), "QC_COOKIE_SECURE": "false"}
     )
@@ -24,7 +26,8 @@ def client() -> TestClient:
         syntax_query=GetSyntaxMap(SyntaxReader(None)),
         scenarios=GetScenario(ScenarioReader()),
         platform=platform(),
-        territory=territory(),
+        territory=GetPolygonProfile(reader) if reader else territory(),
+        cities=cities(),
     )
     return TestClient(app)
 
@@ -156,7 +159,7 @@ def test_territory_profile_has_phase_b_blocks() -> None:
 def test_territory_images_and_building_tiles() -> None:
     c = client()
     [img] = c.get("/api/v1/territory/images").json()
-    assert img["url"] == "territory/images/declividade.png"
+    assert img["url"] == "cities/4202909/territory/images/declividade.png"
     assert img["bounds"] == [-49.1, -27.3, -48.7, -26.9]
     r = c.get("/api/v1/" + img["url"])
     assert r.status_code == 200
@@ -171,3 +174,55 @@ def test_territory_images_and_building_tiles() -> None:
     assert low.status_code == 200
     assert low.content == b""
     assert c.get("/api/v1/territory/tiles/buildings/14/99999/0.mvt").status_code == 400
+
+
+def test_workspace_belongs_to_one_city_and_draws_only_there() -> None:
+    c = client()
+    sign_up(c)
+    w = c.post("/api/v1/workspaces", json={"name": "Meia Praia", "ibge_code": "4208302"}).json()
+    assert (w["ibge_code"], w["city"], w["area"]) == ("4208302", "Itapema, SC", "Itapema, SC")
+    inside = c.post(f"/api/v1/workspaces/{w['id']}/polygons", json={"coordinates": RING_ITAPEMA})
+    assert inside.status_code == 201
+    in_brusque = c.post(f"/api/v1/workspaces/{w['id']}/polygons", json={"coordinates": RING})
+    assert in_brusque.status_code == 400
+    assert "Itapema" in in_brusque.json()["detail"]
+    edits = c.put(
+        f"/api/v1/workspaces/{w['id']}/edits",
+        json={"edits": [{"type": "add", "coords": [[-48.92, -27.10], [-48.91, -27.10]]}]},
+    )
+    assert edits.status_code == 400
+    assert "Itapema" in edits.json()["detail"]
+    # sem cidade (site antigo): Brusque
+    old = c.post("/api/v1/workspaces", json={"name": "antigo"}).json()
+    assert old["ibge_code"] == "4202909"
+
+
+def test_workspace_needs_a_published_city() -> None:
+    c = client()
+    sign_up(c)
+    preparing = c.post("/api/v1/workspaces", json={"name": "x", "ibge_code": "4218004"})
+    assert preparing.status_code == 400
+    assert "não está disponível" in preparing.json()["detail"]
+    assert c.post("/api/v1/workspaces", json={"ibge_code": "42083"}).status_code == 422
+
+
+def test_polygon_stats_by_city() -> None:
+    c = client()
+    r = c.post("/api/v1/cities/4208302/syntax/polygon-stats", json={"coordinates": RING_ITAPEMA})
+    assert r.status_code == 200
+
+
+def test_territory_routes_read_the_city_in_the_path() -> None:
+    reader = TerritoryReader()
+    c = client(reader)
+    assert c.get("/api/v1/cities/4208302/territory/layers").status_code == 200
+    assert c.get("/api/v1/cities/4208302/territory/map/risco").status_code == 200
+    profile = c.post(
+        "/api/v1/cities/4208302/territory/polygon-profile", json={"coordinates": RING_ITAPEMA}
+    )
+    assert profile.status_code == 200
+    assert c.get("/api/v1/cities/4208302/territory/tiles/buildings/14/6000/9000.mvt").content
+    assert c.get("/api/v1/territory/layers").status_code == 200  # rota antiga: Brusque
+    assert set(reader.cities[:-1]) == {"4208302"}
+    assert reader.cities[-1] == "4202909"
+    assert c.get("/api/v1/cities/4218004/territory/layers").status_code == 404

@@ -32,14 +32,15 @@ class PostgisSyntaxMapReader:
     def __init__(self, pool: ConnectionPool) -> None:
         self._pool = pool
         self._lock = threading.Lock()
-        self._cached: SyntaxMap | None = None
+        self._cached: dict[str, SyntaxMap] = {}  # cidade → mapa da análise atual
 
-    def current(self) -> SyntaxMap | None:
+    def current(self, ibge_code: str) -> SyntaxMap | None:
         with self._pool.connection() as conn:
             try:
                 row = conn.execute(
                     "select analysis_id, snapshot_id, manifest from syntax_analysis.analyses "
-                    "where is_current"
+                    "where is_current and ibge_code = %s",
+                    (ibge_code,),
                 ).fetchone()
             except errors.UndefinedTable:
                 return None  # migrações ainda não aplicadas: nada publicado
@@ -47,9 +48,12 @@ class PostgisSyntaxMapReader:
                 return None
             analysis_id, snapshot_id, manifest = str(row[0]), str(row[1]), row[2]
             with self._lock:
-                if self._cached is None or self._cached.analysis_id != analysis_id:
-                    self._cached = self._load(conn, analysis_id, snapshot_id, manifest)
-                return self._cached
+                cached = self._cached.get(ibge_code)
+                if cached is None or cached.analysis_id != analysis_id:
+                    cached = self._cached[ibge_code] = self._load(
+                        conn, analysis_id, snapshot_id, manifest
+                    )
+                return cached
 
     @staticmethod
     def _load(conn: Any, analysis_id: str, snapshot_id: str, manifest: dict[str, Any]) -> SyntaxMap:

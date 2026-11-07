@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from quantumco.bootstrap.cities import PublishedCityAreas
 from quantumco.bootstrap.platform import Platform
 from quantumco.identity.application.account import AccountEmails
 from quantumco.identity.application.auth import Authentication
@@ -20,6 +21,7 @@ from quantumco.identity.domain.email import EmailAddress, EmailMessage
 from quantumco.identity.domain.tokens import EmailToken, TokenPurpose
 from quantumco.identity.domain.user import User
 from quantumco.identity.infrastructure.email_templates import BrandedAccountMessages
+from quantumco.road_network.application.queries import CityView, ListCities
 from quantumco.scenarios.application.ports import (
     EditRejectedError,
     QueueUnavailableError,
@@ -38,6 +40,29 @@ from quantumco.territory.domain.profile import BuildingStats, GridStat, TractOve
 from .support import FixedClock
 
 TINY_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+
+BRUSQUE, ITAPEMA, TIJUCAS = "4202909", "4208302", "4218004"
+
+
+class CityCatalog:
+    """Brusque e Itapema publicadas; Tijucas cadastrada, ainda em preparo."""
+
+    def __init__(self) -> None:
+        self.items = [
+            CityView(BRUSQUE, "Brusque", "SC", "brusque", "publicada", 31982, 7000.0,
+                     (-49.05, -27.20, -48.80, -26.98), "snap-brusque"),
+            CityView(ITAPEMA, "Itapema", "SC", "itapema", "publicada", 31982, 7000.0,
+                     (-48.690, -27.151, -48.584, -27.048), "snap-itapema"),
+            CityView(TIJUCAS, "Tijucas", "SC", "tijucas", "preparando", 31982, 7000.0,
+                     None, None),
+        ]  # fmt: skip
+
+    def cities(self) -> list[CityView]:
+        return list(self.items)
+
+
+def cities() -> ListCities:
+    return ListCities(CityCatalog())
 
 
 class PlainHasher:
@@ -209,7 +234,11 @@ class WorkspaceStore:
 
 
 class PolygonStats:
-    def stats(self, ring: list[tuple[float, float]]) -> Mapping[str, Any] | None:
+    def __init__(self) -> None:
+        self.cities: list[str] = []
+
+    def stats(self, ibge_code: str, ring: list[tuple[float, float]]) -> Mapping[str, Any] | None:
+        self.cities.append(ibge_code)
         return {
             "territory": {"area_km2": 1.0, "perimeter_km": 4.0, "vertices": len(ring)},
             "network": {"links": 10, "km": 2.5, "by_radius": {}},
@@ -255,7 +284,7 @@ class RunStore:
         queued = [r.run_id for r in self.items.values() if r.status == RunStatus.QUEUED]
         return queued.index(run.run_id) + 1
 
-    def expected_engine_seconds(self, radii: Sequence[str]) -> float | None:
+    def expected_engine_seconds(self, ibge_code: str, radii: Sequence[str]) -> float | None:
         return 600.0 if "n" in radii else 30.0
 
     def queued_ids(self) -> list[UUID]:
@@ -286,16 +315,19 @@ class Engine:
         self.reject = reject
         self.calls: list[tuple[str, int]] = []
         self.radii: list[tuple[str, ...]] = []
+        self.cities: list[str] = []
         self.forgotten: list[str] = []
 
     def run(
         self,
         name: str,
+        ibge_code: str,
         edits: Sequence[NetworkEdit],
         on_stage: Callable[[str], None],
         radii: Sequence[str] = (),
     ) -> Mapping[str, Any]:
         self.calls.append((name, len(edits)))
+        self.cities.append(ibge_code)
         self.radii.append(tuple(radii))
         for stage in ("loading", "editing", "engine", "comparing"):
             on_stage(stage)
@@ -327,7 +359,10 @@ def platform(
     clock = clock or FixedClock()
     ident = identity or Identity(clock)
     users, sessions, hasher = ident.users, ident.sessions, ident.hasher
-    workspaces = Workspaces(repository=WorkspaceStore(), clock=clock)
+    catalog = cities()
+    workspaces = Workspaces(
+        repository=WorkspaceStore(), clock=clock, cities=PublishedCityAreas(catalog)
+    )
     runs = ScenarioRuns(
         workspaces=workspaces,
         runs=RunStore(),
@@ -352,6 +387,7 @@ def platform(
             messages=BrandedAccountMessages(),
             clock=clock,
         ),
+        cities=catalog,
     )
 
 
@@ -361,28 +397,37 @@ class TerritoryReader:
     def __init__(self, empty: bool = False) -> None:
         self._empty = empty
         self.tiles: list[tuple[int, int, int]] = []
+        self.cities: list[str] = []  # cidade de cada leitura, na ordem
 
-    def layers(self) -> list[Mapping[str, Any]]:
+    def layers(self, ibge_code: str) -> list[Mapping[str, Any]]:
+        self.cities.append(ibge_code)
         return [] if self._empty else [{"layer": "setores", "rows": 1, "source": "IBGE"}]
 
-    def map_layer(self, name: str) -> bytes | None:
+    def map_layer(self, ibge_code: str, name: str) -> bytes | None:
+        self.cities.append(ibge_code)
         return None if self._empty else b'{"type":"FeatureCollection","features":[]}'
 
-    def images(self) -> list[Mapping[str, Any]]:
+    def images(self, ibge_code: str) -> list[Mapping[str, Any]]:
+        self.cities.append(ibge_code)
         if self._empty:
             return []
         legend = [{"label": "> 30%", "color": "#FF6B5E"}]
         return [{"layer": "declividade", "bounds": [-49.1, -27.3, -48.7, -26.9],
                  "legend": legend, "version": "2026-11-06T00:00:00+00:00"}]  # fmt: skip
 
-    def image(self, layer: str) -> bytes | None:
+    def image(self, ibge_code: str, layer: str) -> bytes | None:
+        self.cities.append(ibge_code)
         return TINY_PNG if not self._empty and layer == "declividade" else None
 
-    def building_tile(self, z: int, x: int, y: int) -> bytes:
+    def building_tile(self, ibge_code: str, z: int, x: int, y: int) -> bytes:
+        self.cities.append(ibge_code)
         self.tiles.append((z, x, y))
         return b"" if self._empty else b"\x1a\x02mvt"
 
-    def overlaps(self, ring: Sequence[tuple[float, float]]) -> PolygonOverlaps | None:
+    def overlaps(
+        self, ibge_code: str, ring: Sequence[tuple[float, float]]
+    ) -> PolygonOverlaps | None:
+        self.cities.append(ibge_code)
         if self._empty:
             return None
         tract = TractOverlap(

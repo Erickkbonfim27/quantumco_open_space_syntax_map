@@ -67,6 +67,7 @@ class ScenarioRun:
     owner_id: UUID
     edits: tuple[NetworkEdit, ...]
     created_at: datetime
+    ibge_code: str  # a cidade do cenário: a base do cálculo é a análise publicada dela
     status: RunStatus = RunStatus.QUEUED
     stage: str = "queued"
     # [{"stage": "engine", "at": iso, "seconds": 31.2}] — "seconds" é preenchido ao sair da etapa
@@ -86,11 +87,12 @@ class ScenarioRun:
         *,
         workspace_id: UUID,
         owner_id: UUID,
+        ibge_code: str,
         edits: tuple[NetworkEdit, ...],
         now: datetime,
         radii: tuple[str, ...] = DEFAULT_RADII,
     ) -> ScenarioRun:
-        run = cls(uuid4(), workspace_id, owner_id, edits, now, radii=check_radii(radii))
+        run = cls(uuid4(), workspace_id, owner_id, edits, now, ibge_code, radii=check_radii(radii))
         run.stages.append({"stage": "queued", "at": now.isoformat(), "seconds": None})
         return run
 

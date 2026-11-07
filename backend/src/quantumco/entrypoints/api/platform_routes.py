@@ -13,7 +13,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
+from quantumco.bootstrap.cities import LEGACY_CITY
 from quantumco.bootstrap.platform import Platform
+from quantumco.entrypoints.api.city_routes import CityCode
 from quantumco.identity.application.account import (
     AlreadyVerifiedError,
     InvalidLinkError,
@@ -90,6 +92,8 @@ class ResetBody(BaseModel):
 class WorkspaceBody(BaseModel):
     name: str = Field(default="", max_length=200)
     measure: Measure = Measure.NAIN
+    # a cidade do cenário (não muda depois); o site antigo não mandava: Brusque
+    ibge_code: str = Field(default=LEGACY_CITY, pattern=r"^\d{7}$")
 
 
 class WorkspacePatch(BaseModel):
@@ -161,15 +165,18 @@ def link_base(request: Request, public_base_url: str) -> str:
     return public_base_url.rstrip("/")
 
 
-def _workspace_json(w: Workspace, *, full: bool) -> dict[str, Any]:
+def _workspace_json(w: Workspace, *, full: bool, city: str) -> dict[str, Any]:
+    """`city`: nome da cidade para a tela ("Itapema, SC")."""
     data: dict[str, Any] = {
         "id": str(w.workspace_id),
+        "ibge_code": w.ibge_code,
+        "city": city,
         "name": w.name,
         "measure": w.measure.value,
         "status": w.status.value,
         "polygons": len(w.polygons),
         "edits_count": len(w.edits),
-        "area": " · ".join(p.name for p in w.polygons[:3]) or "Brusque, SC",
+        "area": " · ".join(p.name for p in w.polygons[:3]) or city,
         "created_at": _iso(w.created_at),
         "updated_at": _iso(w.updated_at),
     }
@@ -419,6 +426,10 @@ def _workspace_routes(
     owner = owner_email.strip().lower()
     CurrentUser = Annotated[User, Depends(current_user)]  # noqa: N806 - alias de tipo
 
+    def as_json(w: Workspace) -> dict[str, Any]:
+        names = {c.ibge_code: f"{c.name}, {c.uf}" for c in platform.cities(published_only=False)}
+        return _workspace_json(w, full=True, city=names.get(w.ibge_code, w.ibge_code))
+
     # ------------------------------------------------------------------ cenários
 
     def guard(fn: Callable[[], T]) -> T:
@@ -438,17 +449,21 @@ def _workspace_routes(
     @router.get("/workspaces", tags=["cenários do usuário"])
     def list_workspaces(user: CurrentUser) -> list[dict[str, Any]]:
         # inclui os polígonos: o painel desenha as miniaturas com as formas reais
-        return [_workspace_json(w, full=True) for w in workspaces.list(user.user_id)]
+        return [as_json(w) for w in workspaces.list(user.user_id)]
 
     @router.post("/workspaces", status_code=201, tags=["cenários do usuário"])
     def create_workspace(body: WorkspaceBody, user: CurrentUser) -> dict[str, Any]:
-        w = workspaces.create(user.user_id, name=body.name, measure=body.measure)
-        return _workspace_json(w, full=True)
+        w = guard(
+            lambda: workspaces.create(
+                user.user_id, ibge_code=body.ibge_code, name=body.name, measure=body.measure
+            )
+        )
+        return as_json(w)
 
     @router.get("/workspaces/{workspace_id}", tags=["cenários do usuário"])
     def get_workspace(workspace_id: UUID, user: CurrentUser) -> dict[str, Any]:
         w = guard(lambda: workspaces.get(user.user_id, workspace_id))
-        return _workspace_json(w, full=True)
+        return as_json(w)
 
     @router.patch("/workspaces/{workspace_id}", tags=["cenários do usuário"])
     def update_workspace(
@@ -463,7 +478,7 @@ def _workspace_routes(
                 status=body.status,
             )
         )
-        return _workspace_json(w, full=True)
+        return as_json(w)
 
     @router.delete("/workspaces/{workspace_id}", status_code=204, tags=["cenários do usuário"])
     def delete_workspace(workspace_id: UUID, user: CurrentUser) -> None:
@@ -497,7 +512,7 @@ def _workspace_routes(
             edits = [NetworkEdit.from_json(e.model_dump(exclude_none=True)) for e in body.edits]
             return workspaces.set_edits(user.user_id, workspace_id, edits)
 
-        return _workspace_json(guard(apply), full=True)
+        return as_json(guard(apply))
 
     @router.post("/workspaces/{workspace_id}/runs", status_code=202, tags=["cenários do usuário"])
     def request_run(
@@ -541,6 +556,10 @@ def _workspace_routes(
 
     # ------------------------------------------------------------------ camadas de um polígono
 
-    @router.post("/syntax/polygon-stats", tags=["análise sintática"])
-    def stats(body: StatsBody) -> dict[str, Any]:
-        return dict(platform.polygon_stats(list(body.coordinates)))
+    @router.post("/cities/{ibge_code}/syntax/polygon-stats", tags=["análise sintática"])
+    def stats(ibge_code: CityCode, body: StatsBody) -> dict[str, Any]:
+        return dict(platform.polygon_stats(ibge_code, list(body.coordinates)))
+
+    @router.post("/syntax/polygon-stats", tags=["análise sintática"], deprecated=True)
+    def legacy_stats(body: StatsBody) -> dict[str, Any]:
+        return dict(platform.polygon_stats(LEGACY_CITY, list(body.coordinates)))

@@ -17,8 +17,10 @@ from shapely.geometry import Polygon
 
 from quantumco.platform.postgres import connect, migrate, pool
 from quantumco.road_network.application.build_snapshot import BuildSnapshot
+from quantumco.road_network.domain.city import City
 from quantumco.road_network.domain.osm import OsmExtract, OsmWay
 from quantumco.road_network.domain.study_area import StudyArea
+from quantumco.road_network.infrastructure.postgis_cities import PostgisCityRegistry
 from quantumco.road_network.infrastructure.postgis_network_reader import PostgisNetworkReader
 from quantumco.road_network.infrastructure.postgis_snapshot_repository import (
     PostgisSnapshotRepository,
@@ -91,13 +93,17 @@ def database() -> str:
     return URL
 
 
-def build(url: str, minute: int) -> None:
+BRUSQUE, ITAPEMA = "4202909", "4208302"
+
+
+def build(url: str, minute: int, city: str = BRUSQUE) -> None:
     BuildSnapshot(
         Source(minute),
         YamlMethodology(METHODOLOGY_V1),
         PostgisSnapshotRepository(url),
         FixedClock(),
-    )()
+        PostgisCityRegistry(url),
+    )(city)
 
 
 def test_snapshot_roundtrip_and_atomic_publish(database: str) -> None:
@@ -114,7 +120,7 @@ def test_snapshot_roundtrip_and_atomic_publish(database: str) -> None:
         ).fetchone()
         assert excluded == (1,)
 
-    network = PostgisNetworkReader(pool(database)).current()
+    network = PostgisNetworkReader(pool(database)).current(BRUSQUE)
     assert network is not None
     links = json.loads(network.links_geojson)
     assert len(links["features"]) == 2  # a ilha fica fora do publicado
@@ -124,14 +130,37 @@ def test_snapshot_roundtrip_and_atomic_publish(database: str) -> None:
     municipality = json.loads(network.municipality_geojson)
     assert municipality["features"][0]["properties"]["ibge_code"] == "4202909"
 
-    source = PostgisNetworkSource(database).latest()
+    source = PostgisNetworkSource(database).latest(BRUSQUE)
     assert source is not None
     assert len(source.links) == 2
-    assert source.snapshot_name.endswith("T020500Z")
+    assert source.snapshot_name == "snapshot-4202909-20261108T020500Z"
+    assert source.crs_epsg == 31982
+
+
+def test_publishing_another_city_keeps_brusque_current(database: str) -> None:
+    registry = PostgisCityRegistry(database)
+    assert registry.get(BRUSQUE) is not None  # semeada pela migração 012
+    registry.add(City(ITAPEMA, "Itapema", "SC", "itapema", 296608, 7000.0, 31982))
+    with connect(database) as conn:
+        before = conn.execute(
+            "select snapshot_id from road_network.snapshots where is_current and ibge_code = %s",
+            (BRUSQUE,),
+        ).fetchone()
+    build(database, 5, ITAPEMA)  # mesmo carimbo do OSM do último de Brusque: nome não colide
+    with connect(database) as conn:
+        rows = dict(
+            conn.execute(
+                "select ibge_code, snapshot_id from road_network.snapshots where is_current"
+            ).fetchall()
+        )
+    assert set(rows) == {BRUSQUE, ITAPEMA}
+    assert before is not None
+    assert rows[BRUSQUE] == before[0]
+    assert PostgisNetworkReader(pool(database)).current(ITAPEMA) is not None
 
 
 def test_analysis_roundtrip(database: str) -> None:
-    source = PostgisNetworkSource(database).latest()
+    source = PostgisNetworkSource(database).latest(BRUSQUE)
     assert source is not None
     ids = tuple(link.link_id for link in source.links)
     result = AnalysisResult(
@@ -140,9 +169,11 @@ def test_analysis_roundtrip(database: str) -> None:
         link_ids=ids,
         columns={"nain_n": np.array([0.2, np.nan]), "c_nain_n": np.array([6.0, np.nan])},
         manifest={"created_at": "2026-11-08T03:10:00+00:00", "preliminary": True},
+        ibge_code=BRUSQUE,
     )
     PostgisAnalysisRepository(database).save(result)
-    syntax = PostgisSyntaxMapReader(pool(database)).current()
+    assert PostgisSyntaxMapReader(pool(database)).current(ITAPEMA) is None  # cada uma a sua
+    syntax = PostgisSyntaxMapReader(pool(database)).current(BRUSQUE)
     assert syntax is not None
     features = {
         f["properties"]["link_id"]: f["properties"]

@@ -21,21 +21,24 @@ from quantumco.syntax_analysis.application.queries import ScenarioMap
 from quantumco.syntax_analysis.domain.segmentation import Link
 
 log = logging.getLogger(__name__)
-SRID = 31982
 
 
 class PostgisBaseAnalysisSource:
     def __init__(self, database_url: str) -> None:
         self._url = database_url
 
-    def current(self) -> BaseAnalysis | None:
+    def current(self, ibge_code: str) -> BaseAnalysis | None:
         with connect(self._url) as conn:
             row = conn.execute(
-                "select analysis_id, snapshot_id from syntax_analysis.analyses where is_current"
+                "select a.analysis_id, a.snapshot_id, ST_SRID(s.municipality) "
+                "from syntax_analysis.analyses a "
+                "join road_network.snapshots s on s.snapshot_id = a.snapshot_id "
+                "where a.is_current and a.ibge_code = %s",
+                (ibge_code,),
             ).fetchone()
             if row is None:
                 return None
-            analysis_id, snapshot_id = str(row[0]), str(row[1])
+            analysis_id, snapshot_id, srid = str(row[0]), str(row[1]), int(str(row[2]))
             rows: list[tuple[Any, ...]] = conn.execute(
                 "select l.link_id, l.zone, ST_AsBinary(l.geom), m.measures "
                 "from road_network.published_links l "
@@ -62,7 +65,12 @@ class PostgisBaseAnalysisSource:
             for k in keys
         }
         return BaseAnalysis(
-            analysis_id=analysis_id, snapshot_id=snapshot_id, links=tuple(links), values=arrays
+            analysis_id=analysis_id,
+            snapshot_id=snapshot_id,
+            links=tuple(links),
+            values=arrays,
+            ibge_code=ibge_code,
+            crs_epsg=srid,
         )
 
 
@@ -76,10 +84,12 @@ class PostgisScenarioRepository:
             # reexecutar com o mesmo nome substitui o cenário anterior
             conn.execute("delete from syntax_analysis.scenarios where name = %s", (result.name,))
             conn.execute(
-                "insert into syntax_analysis.scenarios (scenario_id, name, base_analysis_id, "
-                "snapshot_id, edits, created_at, manifest) values (%s, %s, %s, %s, %s, now(), %s)",
+                "insert into syntax_analysis.scenarios (scenario_id, ibge_code, name, "
+                "base_analysis_id, snapshot_id, edits, created_at, manifest) "
+                "values (%s, %s, %s, %s, %s, %s, now(), %s)",
                 (
                     scenario_id,
+                    result.ibge_code,
                     result.name,
                     result.base_analysis_id,
                     result.snapshot_id,
@@ -94,7 +104,7 @@ class PostgisScenarioRepository:
                 for link_id, measures in result.rows:
                     copy.write_row((scenario_id, link_id, json.dumps(dict(measures))))
             for link_id, coords in result.new_links:
-                geom = shapely.set_srid(LineString(coords), SRID)
+                geom = shapely.set_srid(LineString(coords), result.crs_epsg)
                 conn.execute(
                     "insert into syntax_analysis.scenario_new_links (scenario_id, link_id, geom) "
                     "values (%s, %s, ST_GeomFromEWKB(%s))",
@@ -135,7 +145,7 @@ class PostgisScenarioReader:
         with self._pool.connection() as conn:
             try:
                 rows = conn.execute(
-                    "select name, created_at, manifest from syntax_analysis.scenarios "
+                    "select name, created_at, manifest, ibge_code from syntax_analysis.scenarios "
                     "order by created_at desc"
                 ).fetchall()
             except errors.UndefinedTable:
@@ -143,12 +153,13 @@ class PostgisScenarioReader:
         return [
             {
                 "name": name,
+                "ibge_code": city,
                 "created_at": created.isoformat(),
                 "removed": manifest.get("removed", []),
                 "added": manifest.get("added", []),
                 "summary": manifest.get("summary_result_zone", {}),
             }
-            for name, created, manifest in rows
+            for name, created, manifest, city in rows
         ]
 
     def get(self, name: str) -> ScenarioMap | None:

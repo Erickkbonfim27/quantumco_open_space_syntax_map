@@ -1,4 +1,4 @@
-"""CNES (Ministério da Saúde): estabelecimentos de saúde de Brusque, com coordenada.
+"""CNES (Ministério da Saúde): estabelecimentos de saúde da cidade, com coordenada.
 
 API de dados abertos (apidadosabertos.saude.gov.br), 20 registros por página. Guardamos só o que
 o mapa precisa (nome, tipo, SUS, coordenada); telefone e e-mail ficam de fora.
@@ -9,14 +9,15 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 
+from quantumco.territory.domain.city import TerritoryCity
 from quantumco.territory.domain.records import LayerData, Place
 from quantumco.territory.infrastructure.download import get_json
 
 log = logging.getLogger(__name__)
 
 API = "https://apidadosabertos.saude.gov.br/cnes/estabelecimentos"
-MUNICIPALITY = "420290"  # código IBGE de 6 dígitos
 PAGE = 20
+MARGIN_M = 5000.0  # coordenada além disso do município é erro de cadastro
 LICENSE = "Dados abertos do Ministério da Saúde (CNES)"
 
 # codigo_tipo_unidade → grupo do painel
@@ -52,12 +53,13 @@ def _float(value: object) -> float | None:
 class CnesSource:
     name = "cnes"
 
-    def fetch(self) -> Sequence[LayerData]:
+    def fetch(self, city: TerritoryCity) -> Sequence[LayerData]:
         rows: list[dict[str, object]] = []
         offset = 0
+        code = city.short_code  # o DATASUS usa o código de 6 dígitos
         while True:
             page = get_json(
-                API, params={"codigo_municipio": MUNICIPALITY, "limit": PAGE, "offset": offset}
+                API, params={"codigo_municipio": code, "limit": PAGE, "offset": offset}
             ).get("estabelecimentos", [])
             rows.extend(page)
             if offset % 200 == 0:
@@ -69,33 +71,36 @@ class CnesSource:
         for r in rows:
             lat = _float(r.get("latitude_estabelecimento_decimo_grau"))
             lon = _float(r.get("longitude_estabelecimento_decimo_grau"))
-            if lat is None or lon is None or not (-28 < lat < -26.5 and -49.5 < lon < -48.5):
+            if lat is None or lon is None or not city.contains(lon, lat, MARGIN_M):
                 missing += 1
                 continue
-            code = int(_float(r.get("codigo_tipo_unidade")) or 0)
+            unit = int(_float(r.get("codigo_tipo_unidade")) or 0)
             places.append(
                 Place(
                     layer="cnes",
-                    kind=KINDS.get(code, "outro"),
+                    kind=KINDS.get(unit, "outro"),
                     lon=lon,
                     lat=lat,
                     name=str(r.get("nome_fantasia") or r.get("nome_razao_social") or "").title(),
                     attrs={
                         "cnes": r.get("codigo_cnes"),
-                        "unit_type": code,
+                        "unit_type": unit,
                         "sus": r.get("estabelecimento_faz_atendimento_ambulatorial_sus") == "SIM",
                         "updated": r.get("data_atualizacao"),
                     },
                 )
             )
         log.info(
-            "  CNES: %d com coordenada em Brusque, %d sem coordenada (fora)", len(places), missing
+            "  CNES: %d com coordenada em %s, %d sem coordenada (ou fora)",
+            len(places),
+            city.label,
+            missing,
         )
         return [
             LayerData(
                 layer="cnes",
                 source="Ministério da Saúde · CNES (Cadastro Nacional de Estab. de Saúde)",
-                source_url=f"{API}?codigo_municipio={MUNICIPALITY}",
+                source_url=f"{API}?codigo_municipio={code}",
                 license=LICENSE,
                 places=places,
                 meta={"total": len(rows), "without_coordinates": missing},

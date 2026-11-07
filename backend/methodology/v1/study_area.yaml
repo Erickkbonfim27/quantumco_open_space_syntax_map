@@ -1,5 +1,5 @@
-# Área de estudo. Seleção por código IBGE + relação OSM, nunca por nome (Q14).
-ibge_code: "4202909"        # Brusque-SC
-osm_relation_id: 296588
+# Regra da área de estudo, igual para toda cidade. O município NÃO fica aqui: cada cidade entra
+# no cadastro road_network.study_areas pelo código IBGE + relação OSM, nunca pelo nome (Q14), com
+# `quantumco cidade adicionar <código IBGE>`. A faixa vale no momento do cadastro e fica gravada
+# na cidade (reprodutível mesmo se esta regra mudar). Brusque-SC: IBGE 4202909, relação 296588.
 buffer_m: 7000              # faixa externa para reduzir efeito de borda (Q14)
-crs_epsg: 31982             # SIRGAS 2000 / UTM 22S

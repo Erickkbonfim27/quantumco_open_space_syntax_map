@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from quantumco.scenarios.application.ports import WorkspaceRepository
+from quantumco.scenarios.application.ports import CityAreas, WorkspaceRepository
+from quantumco.scenarios.domain.common import CityArea, InvalidWorkspaceError
 from quantumco.scenarios.domain.network_edits import NetworkEdit
 from quantumco.scenarios.domain.workspace import (
     AreaPolygon,
@@ -22,9 +23,16 @@ class WorkspaceNotFoundError(LookupError):
 
 
 class Workspaces:
-    def __init__(self, *, repository: WorkspaceRepository, clock: Clock) -> None:
+    def __init__(self, *, repository: WorkspaceRepository, clock: Clock, cities: CityAreas) -> None:
         self._repo = repository
         self._clock = clock
+        self._cities = cities
+
+    def _area(self, ibge_code: str) -> CityArea:
+        area = self._cities.area(ibge_code)
+        if area is None:
+            raise InvalidWorkspaceError("Essa cidade ainda não está disponível.")
+        return area
 
     def _owned(self, owner_id: UUID, workspace_id: UUID) -> Workspace:
         workspace = self._repo.get(workspace_id)
@@ -36,9 +44,13 @@ class Workspaces:
     def list(self, owner_id: UUID) -> list[Workspace]:
         return self._repo.list_for(owner_id)
 
-    def create(self, owner_id: UUID, *, name: str, measure: Measure) -> Workspace:
+    def create(self, owner_id: UUID, *, ibge_code: str, name: str, measure: Measure) -> Workspace:
         workspace = Workspace.create(
-            owner_id=owner_id, name=name, measure=measure, now=self._clock.now()
+            owner_id=owner_id,
+            area=self._area(ibge_code),
+            name=name,
+            measure=measure,
+            now=self._clock.now(),
         )
         self._repo.save(workspace)
         return workspace
@@ -68,7 +80,9 @@ class Workspaces:
         self, owner_id: UUID, workspace_id: UUID, *, name: str | None, ring: Ring
     ) -> AreaPolygon:
         workspace = self._owned(owner_id, workspace_id)
-        polygon = workspace.add_polygon(name=name, ring=ring, now=self._clock.now())
+        polygon = workspace.add_polygon(
+            name=name, ring=ring, area=self._area(workspace.ibge_code), now=self._clock.now()
+        )
         self._repo.save(workspace)
         return polygon
 
@@ -76,7 +90,7 @@ class Workspaces:
         self, owner_id: UUID, workspace_id: UUID, edits: Sequence[NetworkEdit]
     ) -> Workspace:
         workspace = self._owned(owner_id, workspace_id)
-        workspace.set_edits(edits, self._clock.now())
+        workspace.set_edits(edits, self._area(workspace.ibge_code), self._clock.now())
         self._repo.save(workspace)
         return workspace
 

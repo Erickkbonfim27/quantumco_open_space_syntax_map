@@ -23,7 +23,9 @@ EDITS = (NetworkEdit(EditKind.REMOVE, link_id="10"),)
 
 
 def new_run() -> ScenarioRun:
-    return ScenarioRun.request(workspace_id=uuid4(), owner_id=uuid4(), edits=EDITS, now=NOW)
+    return ScenarioRun.request(
+        workspace_id=uuid4(), owner_id=uuid4(), ibge_code="4208302", edits=EDITS, now=NOW
+    )
 
 
 def test_lifecycle_records_stage_timings() -> None:
@@ -94,18 +96,29 @@ def test_execute_run_goes_through_stages() -> None:
         RunStatus.DONE
     )
     assert len(engine.calls) == 1
+    assert engine.cities == ["4208302"]  # a cidade do cenário vai até o motor
 
 
 def test_radii_are_validated_and_passed_to_the_engine() -> None:
     run = ScenarioRun.request(
-        workspace_id=uuid4(), owner_id=uuid4(), edits=EDITS, now=NOW, radii=("800", "400")
+        ibge_code="4202909",
+        workspace_id=uuid4(),
+        owner_id=uuid4(),
+        edits=EDITS,
+        now=NOW,
+        radii=("800", "400"),
     )
     assert run.radii == ("400", "800")
     assert not run.whole_city
     for bad in (("300",), ()):
         with pytest.raises(RunRefusedError):
             ScenarioRun.request(
-                workspace_id=uuid4(), owner_id=uuid4(), edits=EDITS, now=NOW, radii=bad
+                ibge_code="4202909",
+                workspace_id=uuid4(),
+                owner_id=uuid4(),
+                edits=EDITS,
+                now=NOW,
+                radii=bad,
             )
     store, engine = RunStore(), Engine()
     store.add(run)

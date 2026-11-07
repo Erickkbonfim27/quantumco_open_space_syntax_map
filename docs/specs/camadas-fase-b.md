@@ -21,7 +21,9 @@ detalhe abaixo do município**, e usar esses dados em três análises que conver
 ### Fora do escopo
 
 - Qualquer dado ou texto de **preço** (ITBI, CUB, anúncios, FipeZAP). A regra "não mede preço" continua
-  valendo (decisões, Q27). O ITBI só entra como validação, por LAI.
+  valendo (decisões, Q27). O ITBI só entra como validação, por LAI. Exceção posterior: os
+  anúncios de imóveis à venda entram pelo ADR 0003, atrás de feature flag; mostrar o preço ainda
+  depende de decisão.
 - Análise Turner/VGA e morfometria com momepy. Esta spec só deixa os prédios prontos para elas; cada
   uma terá a sua spec.
 - Zoneamento da LC 419/2024. Ele não existe aberto: segue o pedido por LAI (ver §9).

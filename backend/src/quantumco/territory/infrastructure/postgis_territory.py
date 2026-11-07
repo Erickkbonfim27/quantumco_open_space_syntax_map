@@ -1,4 +1,7 @@
-"""Camadas territoriais no PostGIS (schema `territory`): gravação por COPY e recorte por área."""
+"""Camadas territoriais no PostGIS (schema `territory`): gravação por COPY e recorte por área.
+
+Tudo por cidade: gravar troca só as linhas da cidade (`ibge_code`) e toda leitura filtra por ela.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +24,7 @@ from quantumco.territory.application.ports import (
     Ring,
 )
 from quantumco.territory.domain.addresses import AddressHit
-from quantumco.territory.domain.grid import BRUSQUE_GRID, BUFFER_M
+from quantumco.territory.domain.grid import BUFFER_M, GridSpec, grid_for_extent
 from quantumco.territory.domain.profile import (
     BUILDINGS_LAYER,
     BuildingStats,
@@ -33,7 +36,7 @@ from quantumco.territory.domain.records import GridKind, GridLayer, LayerData
 
 log = logging.getLogger(__name__)
 
-SRID = 31982
+SRID = 31982  # as colunas do schema são tipadas em UTM 22S (docs/adr/0002-multi-cidade.md)
 _GEOM = (
     "ST_Multi(ST_CollectionExtract(ST_MakeValid("
     f"ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(g), 4326), {SRID})), 3))"
@@ -44,10 +47,15 @@ class PostgisTerritoryRepository:
     def __init__(self, pool: ConnectionPool) -> None:
         self._pool = pool
 
-    def replace(self, data: LayerData, fetched_at: datetime) -> None:
+    def replace(self, ibge_code: str, data: LayerData, fetched_at: datetime) -> None:
+        city = ibge_code
         with self._pool.connection() as conn, conn.transaction():
             if data.tracts:
-                conn.execute("delete from territory.tracts")
+                foreign = [t.code for t in data.tracts if not t.code.startswith(city)]
+                if foreign:
+                    raise ValueError(f"setores de outra cidade em {city}: {foreign[:3]}")
+                # ibge_code dos setores é calculado do código do setor (CD_SETOR)
+                conn.execute("delete from territory.tracts where ibge_code = %s", (city,))
                 conn.execute(
                     "create temp table stage (code text, attrs jsonb, g text) on commit drop"
                 )
@@ -60,7 +68,10 @@ class PostgisTerritoryRepository:
                     f"(select code, attrs, {_GEOM} geom from stage) s"
                 )
             if data.zones:
-                conn.execute("delete from territory.zones where layer = %s", (data.layer,))
+                conn.execute(
+                    "delete from territory.zones where ibge_code = %s and layer = %s",
+                    (city, data.layer),
+                )
                 conn.execute(
                     "create temp table stage_z (layer text, category text, process text, "
                     "attrs jsonb, g text) on commit drop"
@@ -79,13 +90,18 @@ class PostgisTerritoryRepository:
                             )
                         )
                 conn.execute(
-                    "insert into territory.zones (layer, category, process, attrs, area_m2, geom) "
-                    "select layer, category, process, attrs, ST_Area(geom), geom from "
+                    "insert into territory.zones "
+                    "(ibge_code, layer, category, process, attrs, area_m2, geom) "
+                    "select %s, layer, category, process, attrs, ST_Area(geom), geom from "
                     f"(select layer, category, process, attrs, {_GEOM} geom from stage_z) s "
-                    "where not ST_IsEmpty(geom)"
+                    "where not ST_IsEmpty(geom)",
+                    (city,),
                 )
             if data.places:
-                conn.execute("delete from territory.places where layer = %s", (data.layer,))
+                conn.execute(
+                    "delete from territory.places where ibge_code = %s and layer = %s",
+                    (city, data.layer),
+                )
                 conn.execute(
                     "create temp table stage_p (layer text, kind text, name text, tract_code text, "
                     "attrs jsonb, lon double precision, lat double precision) on commit drop"
@@ -106,35 +122,37 @@ class PostgisTerritoryRepository:
                             )
                         )
                 conn.execute(
-                    "insert into territory.places (layer, kind, name, tract_code, attrs, geom) "
-                    "select layer, kind, name, tract_code, attrs, "
-                    f"ST_Transform(ST_SetSRID(ST_MakePoint(lon, lat), 4326), {SRID}) from stage_p"
+                    "insert into territory.places "
+                    "(ibge_code, layer, kind, name, tract_code, attrs, geom) "
+                    "select %s, layer, kind, name, tract_code, attrs, "
+                    f"ST_Transform(ST_SetSRID(ST_MakePoint(lon, lat), 4326), {SRID}) from stage_p",
+                    (city,),
                 )
             if data.addresses:
-                conn.execute("delete from territory.addresses")
+                conn.execute("delete from territory.addresses where ibge_code = %s", (city,))
                 with conn.cursor().copy(
-                    "copy territory.addresses (street, number, locality, cep, units, search_key, "
-                    "lon, lat) from stdin"
+                    "copy territory.addresses (ibge_code, street, number, locality, cep, units, "
+                    "search_key, lon, lat) from stdin"
                 ) as copy:
                     for a in data.addresses:
                         copy.write_row(
-                            (a.street, a.number, a.locality, a.cep, a.units, a.search_key,
+                            (city, a.street, a.number, a.locality, a.cep, a.units, a.search_key,
                              a.lon, a.lat)
                         )  # fmt: skip
             if data.buildings:
-                _replace_buildings(conn, data)
+                _replace_buildings(conn, city, data)
             meta = dict(data.meta)
             if data.grid is not None:
-                meta |= _replace_grid(conn, data.layer, data.grid)
+                meta |= _replace_grid(conn, city, data.layer, data.grid)
             conn.execute(
                 "insert into territory.layers "
-                "(layer, source, source_url, license, rows, fetched_at, meta) "
-                "values (%s, %s, %s, %s, %s, %s, %s) on conflict (layer) do update set "
-                "source = excluded.source, source_url = excluded.source_url, "
+                "(ibge_code, layer, source, source_url, license, rows, fetched_at, meta) "
+                "values (%s, %s, %s, %s, %s, %s, %s, %s) on conflict (ibge_code, layer) do update "
+                "set source = excluded.source, source_url = excluded.source_url, "
                 "license = excluded.license, rows = excluded.rows, "
                 "fetched_at = excluded.fetched_at, meta = excluded.meta",
-                (data.layer, data.source, data.source_url, data.license, data.rows, fetched_at,
-                 Jsonb(meta)),
+                (city, data.layer, data.source, data.source_url, data.license, data.rows,
+                 fetched_at, Jsonb(meta)),
             )  # fmt: skip
         conn_note = (
             "setores"
@@ -149,14 +167,14 @@ class PostgisTerritoryRepository:
             if data.grid is not None
             else "pontos"
         )
-        log.info("  %s: %d %s substituídos", data.layer, data.rows, conn_note)
+        log.info("  %s (%s): %d %s substituídos", data.layer, city, data.rows, conn_note)
 
-    def layers(self) -> Sequence[Mapping[str, Any]]:
-        return _layers(self._pool)
+    def layers(self, ibge_code: str) -> Sequence[Mapping[str, Any]]:
+        return _layers(self._pool, ibge_code)
 
 
-def _replace_buildings(conn: Connection[Any], data: LayerData) -> None:
-    conn.execute("delete from territory.buildings")
+def _replace_buildings(conn: Connection[Any], city: str, data: LayerData) -> None:
+    conn.execute("delete from territory.buildings where ibge_code = %s", (city,))
     conn.execute(
         "create temp table stage_b (building_id text, source text, height_m real, "
         "floors smallint, class text, confidence real, g text) on commit drop"
@@ -171,11 +189,12 @@ def _replace_buildings(conn: Connection[Any], data: LayerData) -> None:
             )  # fmt: skip
     conn.execute(
         "insert into territory.buildings "
-        "(building_id, source, height_m, floors, class, confidence, area_m2, geom) "
-        "select building_id, source, height_m, floors, class, confidence, ST_Area(geom), geom "
-        "from (select building_id, source, height_m, floors, class, confidence, "
+        "(ibge_code, building_id, source, height_m, floors, class, confidence, area_m2, geom) "
+        "select %s, building_id, source, height_m, floors, class, confidence, ST_Area(geom), "
+        "geom from (select building_id, source, height_m, floors, class, confidence, "
         f"{_GEOM} geom from stage_b) s "
-        "where not ST_IsEmpty(geom) on conflict (building_id) do nothing"
+        "where not ST_IsEmpty(geom) on conflict (ibge_code, building_id) do nothing",
+        (city,),
     )
 
 
@@ -183,77 +202,116 @@ def _replace_buildings(conn: Connection[Any], data: LayerData) -> None:
 # O município é subdividido e indexado para o teste ponto-em-polígono não varrer a união inteira.
 _GRID_AREA = (
     "create temp table grid_area on commit drop as "
-    f"select ST_Subdivide(ST_Buffer(ST_Union(geom), {BUFFER_M}), 128) g from territory.tracts"
+    f"select ST_Subdivide(ST_Buffer(ST_Union(geom), {BUFFER_M}), 128) g from territory.tracts "
+    "where ibge_code = %s"
 )
 _GRID_CELLS = f"""
-insert into territory.grid (cell, geom)
-select p.cell, p.geom
+insert into territory.grid (ibge_code, cell, geom)
+select %(city)s, p.cell, p.geom
 from (
-    select r * {BRUSQUE_GRID.ncols} + c cell,
-           ST_SetSRID(ST_MakePoint({BRUSQUE_GRID.west} + (c + 0.5) * {BRUSQUE_GRID.size},
-                                   {BRUSQUE_GRID.north} - (r + 0.5) * {BRUSQUE_GRID.size}),
-                      {SRID}) geom
-    from generate_series(0, {BRUSQUE_GRID.nrows - 1}) r,
-         generate_series(0, {BRUSQUE_GRID.ncols - 1}) c
+    select r * %(ncols)s + c cell,
+           ST_SetSRID(ST_MakePoint(%(west)s + (c + 0.5) * %(size)s,
+                                   %(north)s - (r + 0.5) * %(size)s), {SRID}) geom
+    from generate_series(0, %(nrows)s - 1) r,
+         generate_series(0, %(ncols)s - 1) c
 ) p
 where exists (select 1 from grid_area a where ST_Intersects(a.g, p.geom))
-on conflict (cell) do nothing
+on conflict (ibge_code, cell) do nothing
 """
 
 
-def _ensure_grid(conn: Connection[Any]) -> None:
-    if conn.execute("select 1 from territory.grid limit 1").fetchone() is not None:
-        return
-    if conn.execute("select 1 from territory.tracts limit 1").fetchone() is None:
+def _grid_spec(conn: Connection[Any], city: str) -> GridSpec:
+    """A grade da cidade; na primeira vez, calculada da extensão dos setores e gravada."""
+    row = conn.execute(
+        "select west, north, size, ncols, nrows from territory.grids where ibge_code = %s",
+        (city,),
+    ).fetchone()
+    if row is not None:
+        return GridSpec(float(row[0]), float(row[1]), float(row[2]), int(row[3]), int(row[4]))
+    extent = conn.execute(
+        "select ST_XMin(e), ST_YMin(e), ST_XMax(e), ST_YMax(e) "
+        "from (select ST_Extent(geom) e from territory.tracts where ibge_code = %s) s",
+        (city,),
+    ).fetchone()
+    if extent is None or extent[0] is None:
         raise RuntimeError(
             "a grade de 30 m é recortada pelo município: importe os setores antes "
-            "(`quantumco territory import --only ibge-setores`)"
+            f"(`quantumco territory import --cidade {city} --only ibge-setores`)"
         )
+    spec = grid_for_extent(*(float(v) for v in extent))
+    conn.execute(
+        "insert into territory.grids (ibge_code, west, north, size, ncols, nrows) "
+        "values (%s, %s, %s, %s, %s, %s)",
+        (city, spec.west, spec.north, spec.size, spec.ncols, spec.nrows),
+    )
+    log.info("  grade de 30 m de %s: %d × %d células", city, spec.ncols, spec.nrows)
+    return spec
+
+
+def _ensure_grid(conn: Connection[Any], city: str) -> None:
+    exists = conn.execute(
+        "select 1 from territory.grid where ibge_code = %s limit 1", (city,)
+    ).fetchone()
+    if exists is not None:
+        return
+    spec = _grid_spec(conn, city)
     started = time.perf_counter()
-    conn.execute(_GRID_AREA)
+    conn.execute(_GRID_AREA, (city,))
     conn.execute("create index on grid_area using gist (g)")
-    conn.execute(_GRID_CELLS)
-    (cells,) = conn.execute("select count(*) from territory.grid").fetchone()  # type: ignore[misc]
+    conn.execute(
+        _GRID_CELLS,
+        {"city": city, "ncols": spec.ncols, "nrows": spec.nrows, "west": spec.west,
+         "north": spec.north, "size": spec.size},
+    )  # fmt: skip
+    (cells,) = conn.execute(  # type: ignore[misc]
+        "select count(*) from territory.grid where ibge_code = %s", (city,)
+    ).fetchone()
     log.info("  grade de 30 m criada: %d células em %.1fs", cells, time.perf_counter() - started)
 
 
-def _replace_grid(conn: Connection[Any], layer: str, grid: GridLayer) -> dict[str, Any]:
+def _replace_grid(conn: Connection[Any], city: str, layer: str, grid: GridLayer) -> dict[str, Any]:
     """Grava os valores de uma camada na grade e devolve o que vai para `territory.layers.meta`."""
-    _ensure_grid(conn)
-    conn.execute("delete from territory.grid_values where layer = %s", (layer,))
+    _ensure_grid(conn, city)
+    conn.execute(
+        "delete from territory.grid_values where ibge_code = %s and layer = %s", (city, layer)
+    )
     conn.execute("create temp table stage_g (cell bigint, value real) on commit drop")
     with conn.cursor().copy("copy stage_g (cell, value) from stdin") as copy:
         for cell, value in grid.values.items():
             if math.isfinite(value):
                 copy.write_row((cell, value))
     inserted = conn.execute(
-        "insert into territory.grid_values (layer, cell, value) "
-        "select %s, s.cell, s.value from stage_g s join territory.grid g on g.cell = s.cell",
-        (layer,),
+        "insert into territory.grid_values (ibge_code, layer, cell, value) "
+        "select %s, %s, s.cell, s.value from stage_g s "
+        "join territory.grid g on g.ibge_code = %s and g.cell = s.cell",
+        (city, layer, city),
     ).rowcount
     outside = len(grid.values) - inserted
     if outside:
         log.info("  %s: %d células fora do município (ou sem valor) descartadas", layer, outside)
     if grid.image is None:
-        conn.execute("delete from territory.images where layer = %s", (layer,))
+        conn.execute(
+            "delete from territory.images where ibge_code = %s and layer = %s", (city, layer)
+        )
     else:
         img = grid.image
         conn.execute(
-            "insert into territory.images (layer, png, bounds, legend) values (%s, %s, %s, %s) "
-            "on conflict (layer) do update set png = excluded.png, bounds = excluded.bounds, "
-            "legend = excluded.legend",
-            (layer, img.png, list(img.bounds),
+            "insert into territory.images (ibge_code, layer, png, bounds, legend) "
+            "values (%s, %s, %s, %s, %s) on conflict (ibge_code, layer) do update "
+            "set png = excluded.png, bounds = excluded.bounds, legend = excluded.legend",
+            (city, layer, img.png, list(img.bounds),
              Jsonb([{"label": i.label, "color": i.color} for i in img.legend])),
         )  # fmt: skip
     return {"grid_kind": grid.kind.value, "grid_unit": grid.unit, "grid_cells": inserted}
 
 
-def _layers(pool: ConnectionPool) -> list[dict[str, Any]]:
+def _layers(pool: ConnectionPool, city: str) -> list[dict[str, Any]]:
     with pool.connection() as conn:
         try:
             rows = conn.execute(
                 "select layer, source, source_url, license, rows, fetched_at from territory.layers "
-                "order by layer"
+                "where ibge_code = %s order by layer",
+                (city,),
             ).fetchall()
         except errors.UndefinedTable:
             return []
@@ -277,28 +335,29 @@ cross join poly
 left join lateral (
     select count(*) total, count(*) filter (where ST_Intersects(p.geom, poly.g)) inside
     from territory.places p
-    where p.layer = 'cnefe' and p.kind = 'domicilio' and p.tract_code = t.code
+    where p.ibge_code = %(city)s and p.layer = 'cnefe' and p.kind = 'domicilio'
+      and p.tract_code = t.code
 ) d on true
-where ST_Intersects(t.geom, poly.g)
+where t.ibge_code = %(city)s and ST_Intersects(t.geom, poly.g)
 """
 
 _ZONES = f"""{_POLY}
 select z.layer, z.category, z.process, z.attrs, ST_Area(ST_Intersection(z.geom, poly.g)), z.area_m2
 from territory.zones z, poly
-where ST_Intersects(z.geom, poly.g)
+where z.ibge_code = %(city)s and ST_Intersects(z.geom, poly.g)
 """
 
 _COUNTS = f"""{_POLY}
 select p.layer, p.kind, count(*), count(*) filter (where (p.attrs ->> 'sus')::boolean)
 from territory.places p, poly
-where ST_Intersects(p.geom, poly.g)
+where p.ibge_code = %(city)s and ST_Intersects(p.geom, poly.g)
 group by 1, 2
 """
 
 _NAMED = f"""{_POLY}
 select distinct p.layer, p.kind, p.name
 from territory.places p, poly
-where p.name is not null
+where p.ibge_code = %(city)s and p.name is not null
   and ((p.layer = 'cnefe' and p.kind = 'ensino')
        or (p.layer = 'cnes' and p.kind in ('atencao_basica', 'hospital', 'urgencia')))
   and ST_Intersects(p.geom, poly.g)
@@ -311,7 +370,7 @@ limit 200
 _POINTS = f"""{_POLY},
 inside as (
     select p.place_id, p.layer, p.kind, p.geom from territory.places p, poly
-    where ST_Intersects(p.geom, poly.g)
+    where p.ibge_code = %(city)s and ST_Intersects(p.geom, poly.g)
 ),
 ranked as (
     select *, row_number() over (
@@ -332,7 +391,7 @@ _ZONE_SHAPES = f"""{_POLY}
 select z.layer, z.category, ST_AsGeoJSON(ST_Transform(ST_SimplifyPreserveTopology(
            ST_Intersection(z.geom, poly.g), 2), 4326), 6)::json
 from territory.zones z, poly
-where z.layer in ('risco', 'suscet_inundacao')
+where z.ibge_code = %(city)s and z.layer in ('risco', 'suscet_inundacao')
   and not (z.layer = 'suscet_inundacao' and z.category = 'Baixa')
   and ST_Intersects(z.geom, poly.g)
 """
@@ -340,19 +399,22 @@ where z.layer in ('risco', 'suscet_inundacao')
 
 # Grade de 30 m: centros de célula dentro do polígono.
 _GRID_INSIDE = f"""{_POLY},
-inside as (select g.cell from territory.grid g, poly where ST_Intersects(g.geom, poly.g))"""
+inside as (
+    select g.cell from territory.grid g, poly
+    where g.ibge_code = %(city)s and ST_Intersects(g.geom, poly.g)
+)"""
 
 _GRID_CONTINUOUS = f"""{_GRID_INSIDE}
 select v.layer, count(*), avg(v.value), min(v.value), max(v.value),
        percentile_cont(array[0.1, 0.5, 0.9]) within group (order by v.value)
-from inside i join territory.grid_values v on v.cell = i.cell
+from inside i join territory.grid_values v on v.ibge_code = %(city)s and v.cell = i.cell
 where v.layer = any(%(layers)s)
 group by v.layer
 """
 
 _GRID_CATEGORICAL = f"""{_GRID_INSIDE}
 select v.layer, v.value, count(*)
-from inside i join territory.grid_values v on v.cell = i.cell
+from inside i join territory.grid_values v on v.ibge_code = %(city)s and v.cell = i.cell
 where v.layer = any(%(layers)s)
 group by v.layer, v.value
 """
@@ -363,7 +425,7 @@ b as (
     select b.source, b.height_m, ST_Area(ST_Intersection(b.geom, poly.g)) a,
            ST_Intersects(ST_PointOnSurface(b.geom), poly.g) inside
     from territory.buildings b, poly
-    where ST_Intersects(b.geom, poly.g)
+    where b.ibge_code = %(city)s and ST_Intersects(b.geom, poly.g)
 )
 select source, count(*) filter (where inside), coalesce(sum(a), 0),
        count(height_m) filter (where inside), coalesce(sum(height_m) filter (where inside), 0)
@@ -377,7 +439,8 @@ select ST_X(p), ST_Y(p), area_m2, source = 'OpenStreetMap'
 from (
     select ST_Transform(ST_PointOnSurface(b.geom), 4326) p, b.area_m2, b.source, b.building_id
     from territory.buildings b, poly
-    where b.geom && poly.g and ST_Intersects(ST_PointOnSurface(b.geom), poly.g)
+    where b.ibge_code = %(city)s and b.geom && poly.g
+      and ST_Intersects(ST_PointOnSurface(b.geom), poly.g)
     order by md5(b.building_id)
     limit {BUILDING_SAMPLE}
 ) s
@@ -391,7 +454,7 @@ from (
            ST_AsMVTGeom(ST_Transform(b.geom, 3857), ST_TileEnvelope(%(z)s, %(x)s, %(y)s),
                         4096, 64, true) geom
     from territory.buildings b
-    where b.geom && ST_Transform(
+    where b.ibge_code = %(city)s and b.geom && ST_Transform(
         ST_TileEnvelope(%(z)s, %(x)s, %(y)s, margin => 64.0 / 4096), {SRID})
 ) t
 where t.geom is not null
@@ -439,65 +502,73 @@ _MAP_LAYERS = {
         props="json_build_object('categoria', category, 'processo', process, "
         "'pessoas', attrs -> 'people', 'local', attrs -> 'place', 'data', attrs -> 'date')",
     )
-    + " from territory.zones where layer = 'risco'",
+    + " from territory.zones where ibge_code = %(city)s and layer = 'risco'",
     "suscet_inundacao": _FEATURE.format(
         geom="ST_Transform(ST_SimplifyPreserveTopology(geom, 3), 4326)",
         props="json_build_object('categoria', category)",
     )
-    + " from territory.zones where layer = 'suscet_inundacao' and category in ('Alta', 'Média')",
+    + " from territory.zones where ibge_code = %(city)s and layer = 'suscet_inundacao' "
+    "and category in ('Alta', 'Média')",
     "saude": _FEATURE.format(
         geom="ST_Transform(geom, 4326)",
         props="json_build_object('tipo', kind, 'nome', name, 'sus', attrs -> 'sus')",
     )
-    + " from territory.places where layer = 'cnes'",
+    + " from territory.places where ibge_code = %(city)s and layer = 'cnes'",
     "escolas": _FEATURE.format(
         geom="ST_Transform(geom, 4326)", props="json_build_object('nome', name)"
     )
-    + " from territory.places where layer = 'cnefe' and kind = 'ensino'",
+    + " from territory.places where ibge_code = %(city)s and layer = 'cnefe' and kind = 'ensino'",
     "lugares": _FEATURE.format(
         geom="ST_Transform(geom, 4326)",
         props="json_build_object('nome', name, 'grupo', kind, 'categoria', attrs -> 'category', "
         "'fonte', attrs -> 'source')",
     )
-    + " from territory.places where layer = 'lugares'",
+    + " from territory.places where ibge_code = %(city)s and layer = 'lugares'",
 }
 
 
 class PostgisTerritoryReader:
     def __init__(self, pool: ConnectionPool) -> None:
         self._pool = pool
-        # as camadas só mudam no `territory import`: cache por data de importação
-        self._cache: dict[str, tuple[str, bytes]] = {}
+        # as camadas só mudam no `territory import`: cache por cidade e data de importação
+        self._cache: dict[tuple[str, str], tuple[str, bytes]] = {}
 
-    def map_layer(self, name: str) -> bytes | None:
+    def map_layer(self, ibge_code: str, name: str) -> bytes | None:
         source = {"saude": "cnes", "escolas": "cnefe"}.get(name, name)
         with self._pool.connection() as conn:
             try:
                 row = conn.execute(
-                    "select fetched_at::text from territory.layers where layer = %s", (source,)
+                    "select fetched_at::text from territory.layers "
+                    "where ibge_code = %s and layer = %s",
+                    (ibge_code, source),
                 ).fetchone()
             except errors.UndefinedTable:
                 return None
             if row is None:
                 return None
-            cached = self._cache.get(name)
+            cached = self._cache.get((ibge_code, name))
             if cached and cached[0] == row[0]:
                 return cached[1]
-            (text,) = conn.execute(_FC.format(f"select {_MAP_LAYERS[name]}")).fetchone()  # type: ignore[misc]
+            (text,) = conn.execute(  # type: ignore[misc]
+                _FC.format(f"select {_MAP_LAYERS[name]}"), {"city": ibge_code}
+            ).fetchone()
         data = str(text).encode()
-        self._cache[name] = (row[0], data)
-        log.info("camada %s para o mapa: %.0f kB", name, len(data) / 1024)
+        self._cache[(ibge_code, name)] = (row[0], data)
+        log.info("camada %s de %s para o mapa: %.0f kB", name, ibge_code, len(data) / 1024)
         return data
 
-    def layers(self) -> Sequence[Mapping[str, Any]]:
-        return _layers(self._pool)
+    def layers(self, ibge_code: str) -> Sequence[Mapping[str, Any]]:
+        return _layers(self._pool, ibge_code)
 
-    def images(self) -> Sequence[Mapping[str, Any]]:
+    def images(self, ibge_code: str) -> Sequence[Mapping[str, Any]]:
         with self._pool.connection() as conn:
             try:
                 rows = conn.execute(
                     "select i.layer, i.bounds, i.legend, l.fetched_at from territory.images i "
-                    "left join territory.layers l on l.layer = i.layer order by i.layer"
+                    "left join territory.layers l "
+                    "  on l.ibge_code = i.ibge_code and l.layer = i.layer "
+                    "where i.ibge_code = %s order by i.layer",
+                    (ibge_code,),
                 ).fetchall()
             except errors.UndefinedTable:
                 return []
@@ -507,31 +578,38 @@ class PostgisTerritoryReader:
             for r in rows
         ]  # fmt: skip
 
-    def image(self, layer: str) -> bytes | None:
+    def image(self, ibge_code: str, layer: str) -> bytes | None:
         with self._pool.connection() as conn:
             try:
                 row = conn.execute(
-                    "select png from territory.images where layer = %s", (layer,)
+                    "select png from territory.images where ibge_code = %s and layer = %s",
+                    (ibge_code, layer),
                 ).fetchone()
             except errors.UndefinedTable:
                 return None
         return bytes(row[0]) if row else None
 
-    def building_tile(self, z: int, x: int, y: int) -> bytes:
+    def building_tile(self, ibge_code: str, z: int, x: int, y: int) -> bytes:
         with self._pool.connection() as conn:
             try:
-                row = conn.execute(_BUILDING_TILE, {"z": z, "x": x, "y": y}).fetchone()
+                row = conn.execute(
+                    _BUILDING_TILE, {"city": ibge_code, "z": z, "x": x, "y": y}
+                ).fetchone()
             except errors.UndefinedTable:
                 return b""
         return bytes(row[0]) if row and row[0] else b""
 
-    def overlaps(self, ring: Ring) -> PolygonOverlaps | None:
+    def overlaps(self, ibge_code: str, ring: Ring) -> PolygonOverlaps | None:
         closed = list(ring) if ring[0] == ring[-1] else [*ring, ring[0]]
-        params = {"g": json.dumps({"type": "Polygon", "coordinates": [closed]})}
+        params = {
+            "g": json.dumps({"type": "Polygon", "coordinates": [closed]}),
+            "city": ibge_code,
+        }
         with self._pool.connection() as conn:
             try:
                 imported = conn.execute(
-                    "select layer, meta ->> 'grid_kind' from territory.layers"
+                    "select layer, meta ->> 'grid_kind' from territory.layers where ibge_code = %s",
+                    (ibge_code,),
                 ).fetchall()
             except errors.UndefinedTable:
                 return None
@@ -601,17 +679,19 @@ class PostgisAddressIndex:
     def __init__(self, pool: ConnectionPool) -> None:
         self._pool = pool
 
-    def candidates(self, words: Sequence[str], limit: int = 600) -> list[AddressHit]:
+    def candidates(
+        self, ibge_code: str, words: Sequence[str], limit: int = 600
+    ) -> list[AddressHit]:
         if not words:
             return []
         where = " and ".join(["search_key like %s"] * len(words))
-        params: list[object] = [f"%{w}%" for w in words]
+        params: list[object] = [ibge_code, *(f"%{w}%" for w in words)]
         with self._pool.connection() as conn:
             try:
                 rows = conn.execute(
                     "select street, number, locality, cep, lon, lat, units "
-                    f"from territory.addresses where {where} order by length(search_key) "
-                    "limit %s",
+                    f"from territory.addresses where ibge_code = %s and {where} "
+                    "order by length(search_key) limit %s",
                     [*params, limit],
                 ).fetchall()
             except errors.UndefinedTable:

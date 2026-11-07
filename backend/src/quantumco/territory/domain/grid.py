@@ -4,9 +4,10 @@ Todas as camadas raster (MDT, MapBiomas, Sentinel, Landsat) são resumidas nesta
 SIRGAS 2000 / UTM 22S (EPSG:31982). Assim o recorte no polígono é sempre igual (centros de célula
 dentro do polígono), e o MDT do SIGSC só sai daqui agregado, como pede a licença.
 
-A grade NÃO pode mudar sem migração: o id da célula é guardado no banco. Ela cobre a extensão dos
-setores do IBGE 2022 de Brusque (695.614–719.200 E, 6.983.650–7.011.993 N) com 1 km de folga,
-encaixada em múltiplos de 30 m. Convenção de raster: linha 0 no norte, coluna 0 no oeste, e
+Uma grade por cidade (territory.grids), criada na primeira gravação e NUNCA mudada depois: o id
+da célula é guardado no banco. Ela cobre a extensão dos setores do IBGE 2022 da cidade com 1 km de
+folga, encaixada em múltiplos de 30 m (`grid_for_extent`). A de Brusque cobre 695.614–719.200 E,
+6.983.650–7.011.993 N. Convenção de raster: linha 0 no norte, coluna 0 no oeste, e
 id = linha × colunas + coluna. No banco só existem as células a até 1 km do município.
 """
 
@@ -70,5 +71,20 @@ class GridSpec:
         return None
 
 
+CELL_SIZE_M = 30.0
+
+
+def grid_for_extent(
+    xmin: float, ymin: float, xmax: float, ymax: float, *, size: float = CELL_SIZE_M
+) -> GridSpec:
+    """Grade de uma cidade: a extensão dos setores (no CRS métrico) + BUFFER_M, em múltiplos
+    de `size`."""
+    west = math.floor((xmin - BUFFER_M) / size) * size
+    north = math.ceil((ymax + BUFFER_M) / size) * size
+    ncols = math.ceil((xmax + BUFFER_M - west) / size)
+    nrows = math.ceil((north - (ymin - BUFFER_M)) / size)
+    return GridSpec(west=west, north=north, size=size, ncols=ncols, nrows=nrows)
+
+
 BRUSQUE_GRID = GridSpec(west=694_590.0, north=7_013_010.0, size=30.0, ncols=854, nrows=1012)
-CELL_AREA_M2 = BRUSQUE_GRID.size**2
+CELL_AREA_M2 = CELL_SIZE_M**2

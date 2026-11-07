@@ -55,31 +55,31 @@ class GetPolygonProfile:
     def __init__(self, reader: TerritoryReader) -> None:
         self._reader = reader
 
-    def layers(self) -> Sequence[Mapping[str, Any]]:
-        return self._reader.layers()
+    def layers(self, ibge_code: str) -> Sequence[Mapping[str, Any]]:
+        return self._reader.layers(ibge_code)
 
-    def map_layer(self, name: str) -> bytes | None:
+    def map_layer(self, ibge_code: str, name: str) -> bytes | None:
         if name not in MAP_LAYERS:
             raise UnknownLayerError(f"camada desconhecida: {name} (há: {', '.join(MAP_LAYERS)})")
-        return self._reader.map_layer(name)
+        return self._reader.map_layer(ibge_code, name)
 
-    def images(self) -> Sequence[Mapping[str, Any]]:
-        return self._reader.images()
+    def images(self, ibge_code: str) -> Sequence[Mapping[str, Any]]:
+        return self._reader.images(ibge_code)
 
-    def image(self, layer: str) -> bytes | None:
+    def image(self, ibge_code: str, layer: str) -> bytes | None:
         if not _LAYER_NAME.fullmatch(layer):
             raise UnknownLayerError(f"camada desconhecida: {layer}")
-        return self._reader.image(layer)
+        return self._reader.image(ibge_code, layer)
 
-    def building_tile(self, z: int, x: int, y: int) -> bytes:
+    def building_tile(self, ibge_code: str, z: int, x: int, y: int) -> bytes:
         if not 0 <= z <= MAX_ZOOM or not (0 <= x < 2**z and 0 <= y < 2**z):
             raise InvalidTileError(f"tile inválido: {z}/{x}/{y}")
         if z < BUILDING_MIN_ZOOM:
             return b""
-        return self._reader.building_tile(z, x, y)
+        return self._reader.building_tile(ibge_code, z, x, y)
 
-    def __call__(self, ring: Ring) -> dict[str, Any] | None:
-        found = self._reader.overlaps(ring)
+    def __call__(self, ibge_code: str, ring: Ring) -> dict[str, Any] | None:
+        found = self._reader.overlaps(ibge_code, ring)
         if found is None:
             return None
         area_km2 = found.area_m2 / 1e6
@@ -137,17 +137,19 @@ class GetPolygonProfile:
 
 
 class AddressIndex(Protocol):
-    def candidates(self, words: Sequence[str], limit: int = 600) -> list[AddressHit]: ...
+    def candidates(
+        self, ibge_code: str, words: Sequence[str], limit: int = 600
+    ) -> list[AddressHit]: ...
 
 
 class SearchAddresses:
-    """Endereços de Brusque (CNEFE 2022) que combinam com o texto digitado."""
+    """Endereços da cidade (CNEFE 2022) que combinam com o texto digitado."""
 
     def __init__(self, index: AddressIndex) -> None:
         self._index = index
 
-    def __call__(self, text: str, limit: int = 8) -> list[AddressHit]:
+    def __call__(self, ibge_code: str, text: str, limit: int = 8) -> list[AddressHit]:
         query = AddressQuery.parse(text[:120])
         if not query.searchable:
             return []
-        return rank(self._index.candidates(query.words), query, limit)
+        return rank(self._index.candidates(ibge_code, query.words), query, limit)

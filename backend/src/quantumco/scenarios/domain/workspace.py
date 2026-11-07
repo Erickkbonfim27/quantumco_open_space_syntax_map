@@ -14,10 +14,11 @@ from uuid import UUID, uuid4
 
 from shapely.geometry import Polygon as ShapelyPolygon
 
-from quantumco.scenarios.domain.common import BOUNDS, InvalidWorkspaceError
+from quantumco.scenarios.domain.common import CityArea, InvalidWorkspaceError, check_in_brazil
 from quantumco.scenarios.domain.network_edits import NetworkEdit, check_edits
+from quantumco.shared_kernel.city import city_code
 
-__all__ = ["BOUNDS", "InvalidWorkspaceError"]
+__all__ = ["CityArea", "InvalidWorkspaceError"]
 
 MAX_VERTICES = 500
 MAX_POLYGONS = 50
@@ -58,9 +59,7 @@ class AreaPolygon:
             raise InvalidWorkspaceError("O polígono precisa de pelo menos 3 vértices.")
         if len(ring) > MAX_VERTICES:
             raise InvalidWorkspaceError(f"No máximo {MAX_VERTICES} vértices.")
-        west, south, east, north = BOUNDS
-        if not all(west <= x <= east and south <= y <= north for x, y in ring):
-            raise InvalidWorkspaceError("O polígono precisa estar em Brusque ou no entorno.")
+        check_in_brazil(ring)
         shape = ShapelyPolygon(ring)
         if not shape.is_valid or shape.area == 0:
             raise InvalidWorkspaceError("Polígono inválido (lados se cruzam).")
@@ -70,10 +69,14 @@ class AreaPolygon:
 
 @dataclass(slots=True)
 class Workspace:
-    """Agregado: o cenário e seus polígonos, sempre de um único dono."""
+    """Agregado: o cenário e seus polígonos, sempre de um único dono e de UMA cidade.
+
+    A cidade é escolhida na criação e não muda: polígonos, edições e cálculos são sobre ela.
+    """
 
     workspace_id: UUID
     owner_id: UUID
+    ibge_code: str
     name: str
     measure: Measure
     status: Status
@@ -83,11 +86,18 @@ class Workspace:
     edits: list[NetworkEdit] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        self.ibge_code = city_code(self.ibge_code)
         self.name = _clean_name(self.name, "Cenário sem nome")
 
     @classmethod
-    def create(cls, *, owner_id: UUID, name: str, measure: Measure, now: datetime) -> Workspace:
-        return cls(uuid4(), owner_id, name, measure, Status.RASCUNHO, now, now)
+    def create(
+        cls, *, owner_id: UUID, area: CityArea, name: str, measure: Measure, now: datetime
+    ) -> Workspace:
+        return cls(uuid4(), owner_id, area.ibge_code, name, measure, Status.RASCUNHO, now, now)
+
+    def _check_area(self, area: CityArea) -> None:
+        if area.ibge_code != self.ibge_code:
+            raise InvalidWorkspaceError("Este cenário é de outra cidade.")
 
     def next_code(self) -> str:
         used = {int(p.code.removeprefix("P-")) for p in self.polygons if p.code.startswith("P-")}
@@ -96,9 +106,13 @@ class Workspace:
             n += 1
         return f"P-{n:02d}"
 
-    def add_polygon(self, *, name: str | None, ring: Ring, now: datetime) -> AreaPolygon:
+    def add_polygon(
+        self, *, name: str | None, ring: Ring, area: CityArea, now: datetime
+    ) -> AreaPolygon:
+        self._check_area(area)
         if len(self.polygons) >= MAX_POLYGONS:
             raise InvalidWorkspaceError(f"No máximo {MAX_POLYGONS} polígonos por cenário.")
+        area.check(ring, "O polígono")
         code = self.next_code()
         polygon = AreaPolygon(uuid4(), code, name or f"Polígono {code[2:]}", ring, now)
         self.polygons.append(polygon)
@@ -112,9 +126,10 @@ class Workspace:
             raise InvalidWorkspaceError("Polígono não encontrado.")
         self.updated_at = now
 
-    def set_edits(self, edits: Sequence[NetworkEdit], now: datetime) -> None:
+    def set_edits(self, edits: Sequence[NetworkEdit], area: CityArea, now: datetime) -> None:
         """Substitui a lista de edições da rede (a tela manda a lista inteira)."""
-        check_edits(edits)
+        self._check_area(area)
+        check_edits(edits, area)
         self.edits = list(edits)
         self.updated_at = now
 

@@ -16,7 +16,7 @@ from quantumco.scenarios.domain.run import RunStatus, ScenarioRun
 
 _COLUMNS = (
     "run_id, workspace_id, owner_id, status, stage, stages, edits, created_at, started_at, "
-    "finished_at, heartbeat_at, attempts, worker, error, result, radii"
+    "finished_at, heartbeat_at, attempts, worker, error, result, radii, ibge_code"
 )
 
 
@@ -38,6 +38,7 @@ def _row(run: ScenarioRun) -> dict[str, Any]:
         "error": run.error,
         "result": None if run.result is None else Jsonb(dict(run.result)),
         "radii": list(run.radii),
+        "ibge_code": run.ibge_code,
     }
 
 
@@ -59,6 +60,7 @@ def _run(r: tuple[Any, ...]) -> ScenarioRun:
         error=r[13],
         result=r[14],
         radii=tuple(r[15] or ()),
+        ibge_code=r[16],
     )
 
 
@@ -123,14 +125,16 @@ class PostgisRunRepository:
             ).fetchone()
         return int(row[0]) + 1 if row else 1
 
-    def expected_engine_seconds(self, radii: Sequence[str]) -> float | None:
-        # só cálculos com o mesmo alcance: raios locais levam segundos, a cidade, minutos
+    def expected_engine_seconds(self, ibge_code: str, radii: Sequence[str]) -> float | None:
+        # só cálculos da mesma cidade e com o mesmo alcance: raios locais levam segundos, a
+        # cidade, minutos; e cidades de tamanhos diferentes levam tempos diferentes
         with self._pool.connection() as conn:
             row = conn.execute(
                 "select avg((result->>'engine_seconds')::float8) from ("
                 "  select result from scenarios.runs where status = 'done' and radii = %s "
-                "  and result ? 'engine_seconds' order by finished_at desc limit 10) recent",
-                (list(radii),),
+                "  and ibge_code = %s and result ? 'engine_seconds' "
+                "  order by finished_at desc limit 10) recent",
+                (list(radii), ibge_code),
             ).fetchone()
         return round(float(row[0]), 1) if row and row[0] is not None else None
 

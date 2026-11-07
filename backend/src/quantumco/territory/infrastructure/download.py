@@ -12,7 +12,7 @@ import httpx
 
 log = logging.getLogger(__name__)
 
-USER_AGENT = "quantumco/1.0 (mapa sintatico aberto de Brusque; +https://quantumco.com.br)"
+USER_AGENT = "quantumco/1.0 (mapa sintatico aberto; +https://quantumco.com.br)"
 RETRIES = 4
 
 
@@ -75,6 +75,24 @@ def get_json(url: str, *, params: dict[str, Any] | None = None, timeout: float =
                 response.raise_for_status()
                 return response.json()
         except (httpx.HTTPError, ValueError) as exc:
+            wait = 2**attempt
+            log.warning("  falha em %s (tentativa %d/%d): %s; de novo em %ds",
+                        url, attempt, RETRIES, exc, wait)  # fmt: skip
+            if attempt == RETRIES:
+                raise
+            time.sleep(wait)
+    raise RuntimeError("inalcançável")
+
+
+def get_text(url: str, *, timeout: float = 60) -> str:
+    """GET de texto (listagem de pasta do FTP do IBGE) com novas tentativas."""
+    for attempt in range(1, RETRIES + 1):
+        try:
+            with _client(timeout) as client:
+                response = client.get(url)
+                response.raise_for_status()
+                return response.text
+        except httpx.HTTPError as exc:
             wait = 2**attempt
             log.warning("  falha em %s (tentativa %d/%d): %s; de novo em %ds",
                         url, attempt, RETRIES, exc, wait)  # fmt: skip

@@ -1,4 +1,4 @@
-"""Read model da rede publicada, lido do PostGIS (cache em memória por snapshot)."""
+"""Read model da rede publicada, lido do PostGIS (cache em memória por cidade e snapshot)."""
 
 from __future__ import annotations
 
@@ -42,13 +42,15 @@ class PostgisNetworkReader:
     def __init__(self, pool: ConnectionPool) -> None:
         self._pool = pool
         self._lock = threading.Lock()
-        self._cached: PublishedNetwork | None = None
+        self._cached: dict[str, PublishedNetwork] = {}  # cidade → rede do snapshot atual
 
-    def current(self) -> PublishedNetwork | None:
+    def current(self, ibge_code: str) -> PublishedNetwork | None:
         with self._pool.connection() as conn:
             try:
                 row = conn.execute(
-                    "select snapshot_id, manifest from road_network.snapshots where is_current"
+                    "select snapshot_id, manifest from road_network.snapshots "
+                    "where is_current and ibge_code = %s",
+                    (ibge_code,),
                 ).fetchone()
             except errors.UndefinedTable:
                 return None  # migrações ainda não aplicadas: nada publicado
@@ -56,9 +58,10 @@ class PostgisNetworkReader:
                 return None
             snapshot_id, manifest = str(row[0]), row[1]
             with self._lock:
-                if self._cached is None or self._cached.snapshot_id != snapshot_id:
-                    self._cached = self._load(conn, snapshot_id, manifest)
-                return self._cached
+                cached = self._cached.get(ibge_code)
+                if cached is None or cached.snapshot_id != snapshot_id:
+                    cached = self._cached[ibge_code] = self._load(conn, snapshot_id, manifest)
+                return cached
 
     @staticmethod
     def _load(conn: Any, snapshot_id: str, manifest: dict[str, Any]) -> PublishedNetwork:

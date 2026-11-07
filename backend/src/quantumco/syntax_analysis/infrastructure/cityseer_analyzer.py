@@ -35,12 +35,13 @@ class CityseerAnalyzer:
         pieces: Sequence[Piece],
         distances_m: Sequence[int],
         live: Sequence[bool] | None = None,
+        crs_epsg: int | None = None,
     ) -> EngineRun:
         """`live[i]` False: a reta i entra só como caminho (não é origem e sai sem valor)."""
         frame = gpd.GeoDataFrame(
             {"piece_id": [p.piece_id for p in pieces]},
             geometry=[LineString([p.start, p.end]) for p in pieces],
-            crs=self._crs,
+            crs=crs_epsg or self._crs,
         )
         graph = io.nx_from_generic_geopandas(frame, drop_self_loops_dist=0)
         dual = graphs.nx_to_dual(graph)

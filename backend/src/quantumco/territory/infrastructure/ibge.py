@@ -6,6 +6,7 @@ Uso livre citando a fonte ("Fonte: IBGE, Censo Demográfico 2022").
 from __future__ import annotations
 
 import logging
+import re
 import zipfile
 from collections.abc import Iterator, Sequence
 from pathlib import Path
@@ -16,18 +17,22 @@ from shapely.geometry import MultiPolygon, Polygon, mapping
 
 from quantumco.territory.domain import profile
 from quantumco.territory.domain.addresses import normalize
+from quantumco.territory.domain.city import TerritoryCity
 from quantumco.territory.domain.records import Address, LayerData, Number, Place, Tract
-from quantumco.territory.infrastructure.download import fetch_file
+from quantumco.territory.infrastructure.download import fetch_file, get_text
 
 log = logging.getLogger(__name__)
 
-MUNICIPALITY = "4202909"  # Brusque
 LICENSE = "Uso livre citando a fonte: IBGE, Censo Demográfico 2022"
 CENSUS = "https://ftp.ibge.gov.br/Censos/Censo_Demografico_2022"
-TRACTS_URL = (
-    f"{CENSUS}/Agregados_por_Setores_Censitarios/malha_com_atributos/setores/shp/UF/SC/"
-    "SC_setores_CD2022.zip"
-)
+TRACTS_DIR = f"{CENSUS}/Agregados_por_Setores_Censitarios/malha_com_atributos/setores/shp/UF"
+
+
+def tracts_url(uf: str) -> str:
+    """Malha de setores com atributos: um zip por UF."""
+    return f"{TRACTS_DIR}/{uf}/{uf}_setores_CD2022.zip"
+
+
 INCOME_URL = (
     f"{CENSUS}/Agregados_por_Setores_Censitarios_Rendimento_do_Responsavel/"
     "Agregados_por_setores_renda_responsavel_BR_20260508_csv.zip"
@@ -36,10 +41,24 @@ STREETSCAPE_URL = (
     f"{CENSUS}/Agregados_por_Setores_Censitarios_Caracteristicas_urbanisticas_do_entorno_dos_"
     "domicilios/Agregados_por_Setor_csv/Agregados_por_setores_entorno_domic%c3%adlios_BR.zip"
 )
-CNEFE_URL = (
+CNEFE_DIR = (
     "https://ftp.ibge.gov.br/Cadastro_Nacional_de_Enderecos_para_Fins_Estatisticos/"
-    f"Censo_Demografico_2022/Arquivos_CNEFE/CSV/Municipio/42_SC/{MUNICIPALITY}_BRUSQUE.zip"
+    "Censo_Demografico_2022/Arquivos_CNEFE/CSV/Municipio"
 )
+
+
+def cnefe_url(city: TerritoryCity, listing: str | None = None) -> str:
+    """Arquivo do CNEFE da cidade: um zip por município, "<código>_<NOME>.zip", na pasta da UF.
+
+    O nome é lido da listagem da pasta (pelo código), sem adivinhar a grafia do IBGE.
+    """
+    folder = f"{CNEFE_DIR}/{city.state_code}_{city.uf}/"
+    text = get_text(folder) if listing is None else listing
+    found = sorted(set(re.findall(rf'href="({city.ibge_code}_[^"/]+\.zip)"', text)))
+    if len(found) != 1:
+        raise FileNotFoundError(f"CNEFE de {city.label}: {len(found)} arquivos em {folder}")
+    return folder + str(found[0])
+
 
 # Variáveis do IBGE → atributos do domínio. Entorno: domicílios em faces COM o item.
 BASIC = {"v0001": profile.PEOPLE, "v0003": profile.DWELLINGS, "v0007": profile.HOUSEHOLDS}
@@ -113,8 +132,8 @@ def _number(value: object) -> Number:
         return None
 
 
-def _rows_for(zip_path: Path, code_column: str) -> pd.DataFrame:
-    """Linhas de Brusque de um CSV nacional (lido em blocos; só texto, sem inferência).
+def _rows_for(zip_path: Path, code_column: str, city: TerritoryCity) -> pd.DataFrame:
+    """Linhas da cidade num CSV nacional (lido em blocos; só texto, sem inferência).
 
     O nome da coluna do código muda de arquivo para arquivo (CD_SETOR, CD_setor, setor…): casa sem
     diferenciar maiúsculas. O índice sai sempre com o nome pedido.
@@ -132,10 +151,10 @@ def _rows_for(zip_path: Path, code_column: str) -> pd.DataFrame:
                     raise ValueError(
                         f"{zip_path.name}: sem coluna de setor ({list(chunk.columns)[:3]})"
                     )
-                part = chunk[chunk[column].str.startswith(MUNICIPALITY, na=False)]
+                part = chunk[chunk[column].str.startswith(city.ibge_code, na=False)]
                 parts.append(part.rename(columns={column: code_column}))
     found = pd.concat(parts)
-    log.info("  %s: %d setores de Brusque", zip_path.name.split("-", 1)[-1], len(found))
+    log.info("  %s: %d setores de %s", zip_path.name.split("-", 1)[-1], len(found), city.label)
     return found.set_index(code_column)
 
 
@@ -163,18 +182,21 @@ class CensusTractsSource:
     def __init__(self, cache_dir: Path) -> None:
         self._cache = cache_dir
 
-    def fetch(self) -> Sequence[LayerData]:
-        tracts_zip = fetch_file(TRACTS_URL, self._cache)
+    def fetch(self, city: TerritoryCity) -> Sequence[LayerData]:
+        url = tracts_url(city.uf)
+        tracts_zip = fetch_file(url, self._cache)
         income_zip = fetch_file(INCOME_URL, self._cache)
         streetscape_zip = fetch_file(STREETSCAPE_URL, self._cache)
 
         frame = gpd.read_file(
-            f"zip://{tracts_zip}!SC_setores_CD2022.shp", where=f"CD_MUN='{MUNICIPALITY}'"
+            f"zip://{tracts_zip}!{city.uf}_setores_CD2022.shp", where=f"CD_MUN='{city.ibge_code}'"
         ).to_crs(4326)
-        log.info("  malha: %d setores (%s)", len(frame), frame.crs)
-        income = _rows_for(income_zip, "CD_SETOR")
-        streetscape = _rows_for(streetscape_zip, "CD_setor")
-        extra = {url: _rows_for(fetch_file(url, self._cache), "CD_SETOR") for url in EXTRA}
+        log.info("  malha: %d setores de %s (%s)", len(frame), city.label, frame.crs)
+        if frame.empty:
+            raise ValueError(f"a malha do IBGE não tem setores de {city.label} ({city.ibge_code})")
+        income = _rows_for(income_zip, "CD_SETOR", city)
+        streetscape = _rows_for(streetscape_zip, "CD_setor", city)
+        extra = {u: _rows_for(fetch_file(u, self._cache), "CD_SETOR", city) for u in EXTRA}
 
         tracts: list[Tract] = []
         for row in frame.itertuples(index=False):
@@ -196,15 +218,14 @@ class CensusTractsSource:
                 Tract(code=code, geometry=mapping(_multipolygon(row.geometry)), attrs=attrs)
             )
         people = sum(t.attrs.get(profile.PEOPLE) or 0 for t in tracts)
-        log.info(
-            "  %d setores, %d pessoas (conferência: Censo 2022 = 141.385)", len(tracts), people
-        )
+        # conferência: Brusque deu 141.385 pessoas, o total publicado do Censo 2022
+        log.info("  %d setores, %d pessoas em %s", len(tracts), people, city.label)
         return [
             LayerData(
                 layer="setores",
                 source="IBGE · Censo 2022 (malha de setores, agregados, renda do responsável, "
                 "entorno dos domicílios, idade, alfabetização e saneamento)",
-                source_url=TRACTS_URL,
+                source_url=url,
                 license=LICENSE,
                 tracts=tracts,
                 meta={
@@ -226,8 +247,9 @@ class CnefeSource:
     def __init__(self, cache_dir: Path) -> None:
         self._cache = cache_dir
 
-    def fetch(self) -> Sequence[LayerData]:
-        path = fetch_file(CNEFE_URL, self._cache)
+    def fetch(self, city: TerritoryCity) -> Sequence[LayerData]:
+        url = cnefe_url(city)
+        path = fetch_file(url, self._cache)
         places = list(self._places(path))
         log.info(
             "  CNEFE: %d endereços com coordenada fina (nível ≤ %d)", len(places), CNEFE_MAX_LEVEL
@@ -236,13 +258,11 @@ class CnefeSource:
         log.info("  CNEFE: índice de busca com %d números e logradouros", len(addresses))
         source = "IBGE · CNEFE 2022 (Cadastro Nacional de Endereços para Fins Estatísticos)"
         return [
-            LayerData(
-                layer="cnefe", source=source, source_url=CNEFE_URL, license=LICENSE, places=places
-            ),
+            LayerData(layer="cnefe", source=source, source_url=url, license=LICENSE, places=places),
             LayerData(
                 layer="enderecos",
                 source=source + " · índice de busca",
-                source_url=CNEFE_URL,
+                source_url=url,
                 license=LICENSE,
                 addresses=addresses,
             ),

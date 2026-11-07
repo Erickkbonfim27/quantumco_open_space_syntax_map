@@ -45,8 +45,8 @@ def grid() -> list[Link]:
 
 
 class _Network:
-    def latest(self) -> AnalysisInput:
-        return AnalysisInput("s1", "s1", tuple(grid()))
+    def latest(self, ibge_code: str) -> AnalysisInput:
+        return AnalysisInput("s1", "s1", tuple(grid()), ibge_code, 31982)
 
 
 class _Saved:
@@ -65,13 +65,13 @@ def test_scenario_use_case_with_local_scope_equals_whole_city_rows() -> None:
     """Ponta a ponta (motor real): valores, classes e deltas iguais nos raios locais."""
     cfg = AnalysisConfig("teste", (Radius(RADIUS), Radius(None)), 5000, 0.0, 7, True)
     analyses = _Saved()
-    RunAnalysis(_Network(), CityseerAnalyzer(), analyses, cfg, FixedClock())()
+    RunAnalysis(_Network(), CityseerAnalyzer(), analyses, cfg, FixedClock())("4202909")
     official = analyses.saved
     values = {k: v for k, v in official.columns.items() if k.startswith(("nain_", "nach_"))}
-    base = BaseAnalysis("b1", "s1", tuple(grid()), values)
+    base = BaseAnalysis("b1", "s1", tuple(grid()), values, "4202909", 31982)
 
     class _Base:
-        def current(self) -> BaseAnalysis:
+        def current(self, ibge_code: str) -> BaseAnalysis:
             return base
 
     def run(radii: list[str] | None) -> dict[str, Any]:
@@ -79,7 +79,7 @@ def test_scenario_use_case_with_local_scope_equals_whole_city_rows() -> None:
         RunScenario(
             base=_Base(), analyzer=CityseerAnalyzer(), repository=saved, config=cfg,
             clock=FixedClock(),
-        )("sem-h7-7", [RemoveLink("h7_7")], radii=radii)  # fmt: skip
+        )("sem-h7-7", [RemoveLink("h7_7")], radii=radii, ibge_code="4202909")  # fmt: skip
         return {"rows": dict(saved.saved.rows), "manifest": saved.saved.manifest}
 
     whole, local = run(None), run([str(RADIUS)])

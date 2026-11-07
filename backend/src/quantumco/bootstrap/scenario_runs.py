@@ -1,7 +1,7 @@
 """Fila de cálculo dos cenários: liga Cenários do usuário à Análise Sintática.
 
 O contexto de cenários só conhece `ScenarioEngine`; aqui fica a tradução (camada
-anticorrupção): edições em lon/lat → edições da Análise Sintática no CRS da análise.
+anticorrupção): edições em lon/lat → edições da Análise Sintática no CRS da cidade.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
+from quantumco.bootstrap.road_network import city_registry
 from quantumco.bootstrap.settings import Settings
 from quantumco.platform.postgres import shared_pool
 from quantumco.scenarios.application.ports import EditRejectedError
@@ -22,10 +23,8 @@ from quantumco.shared_kernel.clock import SystemClock
 from quantumco.syntax_analysis.application.run_scenario import RunScenario
 from quantumco.syntax_analysis.domain.edits import AddStreet, Edit, InvalidEditError, RemoveLink
 
-ANALYSIS_EPSG = 31982  # SIRGAS 2000 / UTM 22S
 
-
-def to_analysis_edits(edits: Sequence[NetworkEdit], epsg: int = ANALYSIS_EPSG) -> list[Edit]:
+def to_analysis_edits(edits: Sequence[NetworkEdit], epsg: int) -> list[Edit]:
     """Remover/interditar/redesenhar tiram a via; nova via e redesenhar criam a linha."""
     from pyproj import Transformer  # noqa: PLC0415
 
@@ -46,24 +45,38 @@ def to_analysis_edits(edits: Sequence[NetworkEdit], epsg: int = ANALYSIS_EPSG) -
 class SyntaxScenarioEngine:
     """`ScenarioEngine` sobre o caso de uso `RunScenario` (motor cityseer, cidade inteira)."""
 
-    def __init__(self, run_scenario: RunScenario, forget: Callable[[str], None]) -> None:
+    def __init__(
+        self,
+        run_scenario: RunScenario,
+        forget: Callable[[str], None],
+        crs_of: Callable[[str], int],
+    ) -> None:
         self._run = run_scenario
         self._forget = forget
+        self._crs_of = crs_of
 
     def run(
         self,
         name: str,
+        ibge_code: str,
         edits: Sequence[NetworkEdit],
         on_stage: Callable[[str], None],
         radii: Sequence[str],
     ) -> Mapping[str, Any]:
         try:
-            result, _ = self._run(name, to_analysis_edits(edits), on_stage, radii=list(radii))
+            result, _ = self._run(
+                name,
+                to_analysis_edits(edits, self._crs_of(ibge_code)),
+                on_stage,
+                radii=list(radii),
+                ibge_code=ibge_code,
+            )
         except InvalidEditError as error:
             raise EditRejectedError(_friendly(str(error))) from error
         manifest = result.manifest
         return {
             "name": name,
+            "ibge_code": ibge_code,
             "base_analysis_id": manifest["base_analysis_id"],
             "removed": len(manifest["removed"]) - len(manifest.get("closed", [])),
             "closed": len(manifest.get("closed", [])),
@@ -129,9 +142,17 @@ def build_executor(settings: Settings, worker: str) -> ExecuteRun:
 
     database = settings.require_database()
     results = PostgisScenarioRepository(database)
+    registry = city_registry(settings)
+
+    def crs_of(ibge_code: str) -> int:
+        city = registry.get(ibge_code)
+        if city is None:
+            raise EditRejectedError("A cidade deste cenário não está mais no cadastro.")
+        return city.crs_epsg
+
     return ExecuteRun(
         runs=PostgisRunRepository(shared_pool(database)),
-        engine=SyntaxScenarioEngine(run_scenario_use_case(settings), results.delete),
+        engine=SyntaxScenarioEngine(run_scenario_use_case(settings), results.delete, crs_of),
         clock=SystemClock(),
         worker=worker,
     )

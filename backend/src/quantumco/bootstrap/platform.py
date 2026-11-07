@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from quantumco.bootstrap.cities import PublishedCityAreas
 from quantumco.bootstrap.identity import build_avatar_store, build_mailer
+from quantumco.bootstrap.road_network import city_list_query
 from quantumco.bootstrap.scenario_runs import build_runs
 from quantumco.bootstrap.settings import Settings
 from quantumco.identity.application.account import AccountEmails
@@ -17,6 +19,7 @@ from quantumco.identity.infrastructure.postgis_identity import (
     PostgisUserRepository,
 )
 from quantumco.platform.postgres import shared_pool
+from quantumco.road_network.application.queries import ListCities
 from quantumco.scenarios.application.runs import ScenarioRuns
 from quantumco.scenarios.application.workspaces import Workspaces
 from quantumco.scenarios.infrastructure.postgis_workspaces import PostgisWorkspaceRepository
@@ -37,6 +40,7 @@ class Platform:
     polygon_stats: GetPolygonStats
     forget_result: Callable[[str], None]  # apaga o resultado de um cenário apagado
     account: AccountEmails  # confirmação de e-mail, troca de e-mail e de senha por link
+    cities: ListCities  # cidades publicadas (nome do cenário na lista, cidade padrão)
     public_base_url: str = "https://quantumco.com.br"  # base dos links nos e-mails
 
 
@@ -47,7 +51,12 @@ def build_platform(settings: Settings) -> Platform:
     users = PostgisUserRepository(shared)
     sessions = PostgisSessionStore(shared)
     hasher = Argon2Hasher()
-    workspaces = Workspaces(repository=PostgisWorkspaceRepository(shared), clock=clock)
+    cities = city_list_query(settings)
+    workspaces = Workspaces(
+        repository=PostgisWorkspaceRepository(shared),
+        clock=clock,
+        cities=PublishedCityAreas(cities),
+    )
     account = AccountEmails(
         users=users,
         tokens=PostgisTokenStore(shared),
@@ -65,5 +74,6 @@ def build_platform(settings: Settings) -> Platform:
         polygon_stats=GetPolygonStats(PostgisPolygonStats(shared)),
         forget_result=PostgisScenarioRepository(database).delete,
         account=account,
+        cities=cities,
         public_base_url=settings.public_base_url,
     )

@@ -6,19 +6,42 @@ from typing import Annotated
 
 import typer
 
+from quantumco.bootstrap.cities import LEGACY_CITY, CityNotReadyError, territory_city
 from quantumco.bootstrap.identity import build_mailer, sender_from
-from quantumco.bootstrap.road_network import build_snapshot_use_case
+from quantumco.bootstrap.listings import (
+    ensure_schema,
+    feature_flags,
+    import_listings_use_case,
+    search_area,
+)
+from quantumco.bootstrap.road_network import build_snapshot_use_case, city_registry
 from quantumco.bootstrap.settings import Settings, load_env_file
 from quantumco.bootstrap.syntax_analysis import run_analysis_use_case, run_scenario_use_case
 from quantumco.bootstrap.territory import import_territory_use_case, territory_profile_query
 from quantumco.identity.domain.email import EmailAddress, EmailMessage
 from quantumco.identity.infrastructure.resend_mailer import ResendMailer, RestrictedApiKeyError
+from quantumco.listings.application.ports import (
+    FeatureDisabledError,
+    RunAlreadyActiveError,
+    SourceBlockedError,
+)
 from quantumco.platform.homolog import sync
 from quantumco.platform.postgres import migrate, shared_pool
 from quantumco.road_network.domain.highway_filter import FilterVariant
 from quantumco.syntax_analysis.domain.edits import AddStreet, Edit, RemoveLink
 
-app = typer.Typer(help="quantumco: mapa sintático aberto de Brusque-SC", no_args_is_help=True)
+app = typer.Typer(
+    help="quantumco: mapa sintático aberto das cidades brasileiras", no_args_is_help=True
+)
+city_app = typer.Typer(
+    help="Cidades: cadastro pelo código IBGE e processamento (rede, sintaxe, território)",
+    no_args_is_help=True,
+)
+app.add_typer(city_app, name="cidade")
+# cidade dos comandos de rede, análise, território e cenário (padrão: Brusque, a primeira)
+CityOption = Annotated[
+    str, typer.Option("--cidade", help="código IBGE do município (padrão: Brusque, 4202909)")
+]
 snapshot_app = typer.Typer(
     help="Rede Viária: cold start e reprocessamento do snapshot do OSM", no_args_is_help=True
 )
@@ -44,6 +67,14 @@ data_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(data_app, name="dados")
+listings_app = typer.Typer(
+    help="Imóveis à venda (docs/adr/0003), atrás da flag listings_glue_api", no_args_is_help=True
+)
+app.add_typer(listings_app, name="imoveis")
+flags_app = typer.Typer(
+    help="Feature flags (tabela public.feature_flags no PostGIS)", no_args_is_help=True
+)
+app.add_typer(flags_app, name="flags")
 
 _LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
 
@@ -116,11 +147,12 @@ def build(
     as_of: Annotated[
         datetime | None, typer.Option(help="data do extrato (consulta attic do Overpass)")
     ] = None,
+    cidade: CityOption = LEGACY_CITY,
 ) -> None:
     """Baixa o OSM, filtra, monta a topologia e grava o snapshot com manifesto."""
     settings: Settings = ctx.obj
     _migrate_if_configured(settings)
-    result = build_snapshot_use_case(settings, as_of)(variant)
+    result = build_snapshot_use_case(settings, as_of)(cidade, variant)
     report = result.snapshot.report
     typer.echo(f"snapshot {result.snapshot.snapshot_id} → {result.location}")
     typer.echo(f"  OSM base:        {result.snapshot.osm_base_timestamp.isoformat()}")
@@ -137,11 +169,11 @@ def build(
 
 
 @analysis_app.command("run")
-def analysis_run(ctx: typer.Context) -> None:
-    """Calcula NAIN e NACH em todos os raios sobre o snapshot mais recente."""
+def analysis_run(ctx: typer.Context, cidade: CityOption = LEGACY_CITY) -> None:
+    """Calcula NAIN e NACH em todos os raios sobre o snapshot publicado da cidade."""
     settings: Settings = ctx.obj
     _migrate_if_configured(settings)
-    result, location = run_analysis_use_case(settings)()
+    result, location = run_analysis_use_case(settings)(cidade)
     manifest = result.manifest
     typer.echo(f"análise → {location}")
     typer.echo(
@@ -160,15 +192,19 @@ def territory_import(
         list[str] | None,
         typer.Option(
             "--only",
-            help="só estas fontes: ibge-setores, ibge-cnefe, sgb-risco, cnes, overture-edificacoes",
+            help="só estas fontes: ibge-setores, ibge-cnefe, sgb-risco, cnes, "
+            "overture-edificacoes, overture-lugares",
         ),
     ] = None,
+    cidade: CityOption = LEGACY_CITY,
 ) -> None:
-    """Baixa as fontes abertas e substitui as camadas territoriais no PostGIS."""
+    """Baixa as fontes abertas e substitui as camadas territoriais DA CIDADE no PostGIS."""
     settings: Settings = ctx.obj
     _migrate_if_configured(settings)
     try:
-        for report in import_territory_use_case(settings)(only):
+        city = territory_city(settings, cidade)
+        typer.echo(f"camadas de {city.label} (IBGE {city.ibge_code})")
+        for report in import_territory_use_case(settings)(city, only):
             typer.echo(f"  {report.layer:<28} {report.rows:>7} registros  ({report.seconds}s)")
     finally:
         # sem isto o processo espera 5 s por thread do pool antes de sair
@@ -176,23 +212,108 @@ def territory_import(
 
 
 @territory_app.command("layers")
-def territory_layers(ctx: typer.Context) -> None:
-    """Lista as camadas territoriais importadas (fonte, data, quantidade)."""
+def territory_layers(ctx: typer.Context, cidade: CityOption = LEGACY_CITY) -> None:
+    """Lista as camadas territoriais importadas da cidade (fonte, data, quantidade)."""
     settings: Settings = ctx.obj
-    for layer in territory_profile_query(settings).layers():
+    for layer in territory_profile_query(settings).layers(cidade):
         when = layer["fetched_at"][:16]
         typer.echo(f"  {layer['layer']:<28} {layer['rows']:>7}  {when}  {layer['source']}")
 
 
 @app.command("coldstart")
-def coldstart(ctx: typer.Context) -> None:
-    """Cold start completo: snapshot do OSM + análise sintática."""
+def coldstart(ctx: typer.Context, cidade: CityOption = LEGACY_CITY) -> None:
+    """Cold start da cidade: snapshot do OSM + análise sintática (sem território)."""
     settings: Settings = ctx.obj
     _migrate_if_configured(settings)
-    result = build_snapshot_use_case(settings)(FilterVariant.BASE)
+    result = build_snapshot_use_case(settings)(cidade, FilterVariant.BASE)
     typer.echo(f"snapshot → {result.location}")
-    analysis, location = run_analysis_use_case(settings)()
+    analysis, location = run_analysis_use_case(settings)(cidade)
     typer.echo(f"análise → {location} ({analysis.manifest['engine_seconds']}s de motor)")
+
+
+@city_app.command("adicionar")
+def city_add(
+    ctx: typer.Context,
+    codigo: Annotated[str, typer.Argument(help="código IBGE do município (ex.: 4208302)")],
+) -> None:
+    """Cadastra a cidade: nome e UF pelo IBGE, limite no OSM pelo IBGE:GEOCODIGO."""
+    from quantumco.bootstrap.road_network import register_city_use_case  # noqa: PLC0415
+
+    settings: Settings = ctx.obj
+    _migrate_if_configured(settings)
+    city, new = register_city_use_case(settings)(codigo)
+    state = "cadastrada" if new else "já estava no cadastro"
+    typer.echo(
+        f"[{_target_db(settings)}] {city.label} {state}: IBGE {city.ibge_code}, relação OSM "
+        f"{city.osm_relation_id}, EPSG:{city.crs_epsg}, faixa {city.buffer_m / 1000:.0f} km, "
+        f"{city.status.value}, mapa em /map/{city.uf.lower()}/{city.slug}"
+    )
+
+
+@city_app.command("processar")
+def city_process(
+    ctx: typer.Context,
+    codigo: Annotated[str, typer.Argument(help="código IBGE do município (ex.: 4208302)")],
+    territorio: Annotated[
+        bool, typer.Option(help="importa também as camadas do território")
+    ] = True,
+    only: Annotated[
+        list[str] | None, typer.Option("--only", help="só estas fontes do território")
+    ] = None,
+    enfileirar: Annotated[
+        bool, typer.Option(help="manda para a fila 'dados' (VPS) em vez de rodar aqui")
+    ] = False,
+) -> None:
+    """Rede do OSM → análise sintática → território → publica a cidade no site."""
+    from quantumco.bootstrap.city_pipeline import CITY_JOB, process_city  # noqa: PLC0415
+
+    settings: Settings = ctx.obj
+    _migrate_if_configured(settings)
+    if enfileirar:
+        from rq import Queue  # noqa: PLC0415
+
+        from quantumco.bootstrap.datasets import DATA_QUEUE  # noqa: PLC0415
+        from quantumco.scenarios.infrastructure.redis_queue import redis_client  # noqa: PLC0415
+
+        queue = f"{DATA_QUEUE}-homolog" if settings.use_homolog else DATA_QUEUE
+        job = Queue(queue, connection=redis_client(settings.redis_url)).enqueue(
+            CITY_JOB,
+            codigo,
+            territorio,
+            only,
+            job_timeout=4 * 3600,
+            result_ttl=30 * 24 * 3600,
+            description=f"cidade {codigo}",
+        )
+        typer.echo(f"enfileirado na fila '{queue}': job {job.id}")
+        return
+    summary = process_city(settings, codigo, territory=territorio, only=only)
+    typer.echo(f"[{_target_db(settings)}] {summary['city']} publicada em {summary['seconds']}s")
+    typer.echo(
+        f"  rede: {summary['links']} trechos, {summary['km']} km · "
+        f"motor: {summary['engine_seconds']}s"
+    )
+    for layer, rows in (summary.get("layers") or {}).items():
+        typer.echo(f"  {layer:<28} {rows:>7} registros")
+
+
+@city_app.command("listar")
+def city_list(ctx: typer.Context) -> None:
+    """Lista as cidades do cadastro e se já estão no site."""
+    from quantumco.bootstrap.road_network import city_list_query  # noqa: PLC0415
+
+    settings: Settings = ctx.obj
+    typer.echo(f"[{_target_db(settings)}]")
+    for city in city_list_query(settings)(published_only=False):
+        snapshot = city.snapshot_id or "sem rede"
+        typer.echo(
+            f"  {city.ibge_code}  {city.name}-{city.uf:<4} {city.status:<11} "
+            f"/map/{city.uf.lower()}/{city.slug}  snapshot {snapshot}"
+        )
+
+
+def _target_db(settings: Settings) -> str:
+    return "HOMOLOGAÇÃO" if settings.use_homolog else "produção"
 
 
 def _parse_street(spec: str, crs_epsg: int) -> AddStreet:
@@ -210,6 +331,7 @@ def _parse_street(spec: str, crs_epsg: int) -> AddStreet:
 @scenario_app.command("run")
 def scenario_run(
     ctx: typer.Context,
+    *,
     name: Annotated[str, typer.Option(help="nome do cenário (ex.: ponte-centro)")],
     remove: Annotated[
         list[str] | None, typer.Option(help="id do trecho a remover (repetível)")
@@ -219,13 +341,17 @@ def scenario_run(
         typer.Option(help='rua nova "lon,lat;lon,lat;…" (repetível; pontas encaixam na rede)'),
     ] = None,
     snap: Annotated[float, typer.Option(help="distância máxima de encaixe, em metros")] = 30.0,
+    cidade: CityOption = LEGACY_CITY,
 ) -> None:
     """Aplica as edições, recalcula a cidade inteira e compara com a análise publicada."""
     settings: Settings = ctx.obj
     _migrate_if_configured(settings)
+    city = city_registry(settings).get(cidade)
+    if city is None:
+        raise typer.BadParameter(f"cidade {cidade} fora do cadastro")
     edits: list[Edit] = [RemoveLink(link_id) for link_id in remove or []]
-    edits += [_parse_street(spec, 31982) for spec in add or []]
-    result, location = run_scenario_use_case(settings, snap)(name, edits)
+    edits += [_parse_street(spec, city.crs_epsg) for spec in add or []]
+    result, location = run_scenario_use_case(settings, snap)(name, edits, ibge_code=cidade)
     typer.echo(f"cenário → {location}")
     for key, change in result.manifest["summary_result_zone"].items():
         typer.echo(
@@ -313,6 +439,88 @@ def data_cnpj(
 
     report = ingest_cnpj_use_case(settings)(competencia)
     typer.echo(f"CNPJ {report.competencia} em {report.seconds}s: {report.summary}")
+
+
+@flags_app.command("listar")
+def flags_list(ctx: typer.Context) -> None:
+    """Lista as feature flags e se estão ligadas."""
+    settings: Settings = ctx.obj
+    ensure_schema(settings)
+    try:
+        typer.echo(f"[{_target_db(settings)}]")
+        for flag in feature_flags(settings).all():
+            state = "ligada   " if flag.enabled else "desligada"
+            typer.echo(f"  {state}  {flag.name:<28} {flag.description}")
+    finally:
+        shared_pool(settings.require_database()).close()
+
+
+def _set_flag(settings: Settings, name: str, enabled: bool) -> None:
+    ensure_schema(settings)
+    try:
+        feature_flags(settings).set(name, enabled)
+    finally:
+        shared_pool(settings.require_database()).close()
+    typer.echo(f"[{_target_db(settings)}] flag {name}: {'ligada' if enabled else 'desligada'}")
+
+
+@flags_app.command("ligar")
+def flags_on(ctx: typer.Context, nome: Annotated[str, typer.Argument(help="nome da flag")]) -> None:
+    """Liga uma feature flag."""
+    _set_flag(ctx.obj, nome, True)
+
+
+@flags_app.command("desligar")
+def flags_off(
+    ctx: typer.Context, nome: Annotated[str, typer.Argument(help="nome da flag")]
+) -> None:
+    """Desliga uma feature flag."""
+    _set_flag(ctx.obj, nome, False)
+
+
+@listings_app.command("importar")
+def listings_import(
+    ctx: typer.Context,
+    *,
+    cidade: CityOption = LEGACY_CITY,
+    portal: Annotated[str, typer.Option(help="zap ou vivareal")] = "zap",
+    max_paginas: Annotated[
+        int, typer.Option(help="limite de pedidos à API (30 anúncios por página)")
+    ] = 400,
+    intervalo: Annotated[float, typer.Option(help="segundos entre páginas")] = 3.0,
+) -> None:
+    """Busca os imóveis à venda da cidade do cadastro e faz o upsert idempotente (ADR 0003)."""
+    settings: Settings = ctx.obj
+    target = _target_db(settings)
+    ensure_schema(settings)
+    try:
+        area = search_area(settings, cidade)
+        typer.echo(f"[{target}] {area.city}-{area.uf} (IBGE {area.ibge_code}), portal {portal}")
+        report = import_listings_use_case(settings, portal, intervalo)(area, max_paginas)
+    except CityNotReadyError as exc:
+        typer.echo(f"[{target}] {exc}")
+        raise typer.Exit(1) from exc
+    except FeatureDisabledError as exc:
+        typer.echo(f"[{target}] {exc}")
+        raise typer.Exit(2) from exc
+    except SourceBlockedError as exc:
+        typer.echo(f"[{target}] BLOQUEADO: {exc}")
+        raise typer.Exit(3) from exc
+    except RunAlreadyActiveError as exc:
+        typer.echo(f"[{target}] {exc}")
+        raise typer.Exit(4) from exc
+    finally:
+        shared_pool(settings.require_database()).close()
+    t = report.tally
+    typer.echo(
+        f"[{target}] carga {report.run_id} {report.status} em {report.seconds}s "
+        f"({'completa' if t.complete else 'INCOMPLETA: ninguém marcado como removido'})"
+    )
+    typer.echo(
+        f"  {t.received} recebidos de {t.total}: {t.new} novos, {t.changed} mudaram, "
+        f"{t.unchanged} iguais, {t.rejected} na quarentena, {t.removed} removidos"
+    )
+    typer.echo(f"  {t.located} com ponto no mapa · {t.pages} páginas · {t.attempts} pedidos")
 
 
 @app.command("serve")

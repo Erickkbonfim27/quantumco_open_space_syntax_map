@@ -1,4 +1,7 @@
-"""Adaptador `AnalysisRepository` no PostGIS: grava e publica a análise numa transação só."""
+"""Adaptador `AnalysisRepository` no PostGIS: grava e publica a análise numa transação só.
+
+Publicar troca só a análise atual DA MESMA CIDADE.
+"""
 
 from __future__ import annotations
 
@@ -34,9 +37,16 @@ class PostgisAnalysisRepository:
         with connect(self._url) as conn, conn.transaction():
             conn.execute(
                 "insert into syntax_analysis.analyses "
-                "(analysis_id, snapshot_id, name, created_at, manifest) "
-                "values (%s, %s, %s, %s, %s)",
-                (analysis_id, result.snapshot_id, name, created, Jsonb(dict(result.manifest))),
+                "(analysis_id, ibge_code, snapshot_id, name, created_at, manifest) "
+                "values (%s, %s, %s, %s, %s, %s)",
+                (
+                    analysis_id,
+                    result.ibge_code,
+                    result.snapshot_id,
+                    name,
+                    created,
+                    Jsonb(dict(result.manifest)),
+                ),
             )
             log.info("gravando medidas de %d trechos no PostGIS (COPY)…", len(result.link_ids))
             with conn.cursor().copy(
@@ -45,7 +55,11 @@ class PostgisAnalysisRepository:
                 for i, link_id in enumerate(result.link_ids):
                     measures = {k: _clean(k, float(result.columns[k][i])) for k in keys}
                     copy.write_row((analysis_id, link_id, json.dumps(measures)))
-            conn.execute("update syntax_analysis.analyses set is_current = false where is_current")
+            conn.execute(
+                "update syntax_analysis.analyses set is_current = false "
+                "where is_current and ibge_code = %s",
+                (result.ibge_code,),
+            )
             conn.execute(
                 "update syntax_analysis.analyses set is_current = true where analysis_id = %s",
                 (analysis_id,),

@@ -30,7 +30,8 @@ from pyproj import Transformer
 from shapely import from_wkb
 from shapely.geometry import MultiPolygon, Polygon, mapping
 
-from quantumco.territory.domain.grid import BRUSQUE_GRID
+from quantumco.territory.domain.city import TerritoryCity
+from quantumco.territory.domain.grid import BUFFER_M
 from quantumco.territory.domain.profile import BUILDINGS_LAYER
 from quantumco.territory.domain.records import Building, LayerData, Place
 
@@ -53,25 +54,20 @@ def _to_utm() -> Transformer:
     return Transformer.from_crs(4326, 31982, always_xy=True)
 
 
-@functools.cache
-def _to_wgs84() -> Transformer:
-    return Transformer.from_crs(31982, 4326, always_xy=True)
+def city_bbox(city: TerritoryCity) -> tuple[float, float, float, float]:
+    """Retângulo WGS84 (oeste, sul, leste, norte): o município com a folga da grade (1 km)."""
+    west, south, east, north = city.around(BUFFER_M)
+    return round(west, 6), round(south, 6), round(east, 6), round(north, 6)
 
 
-def grid_bbox() -> tuple[float, float, float, float]:
-    """Retângulo WGS84 (oeste, sul, leste, norte) que cobre a grade de 30 m inteira."""
-    g = BRUSQUE_GRID
-    corners = [_to_wgs84().transform(x, y) for x in (g.west, g.east) for y in (g.south, g.north)]
-    lons, lats = [c[0] for c in corners], [c[1] for c in corners]
-    return min(lons), min(lats), max(lons), max(lats)
-
-
-def download(kind: str, cache_dir: Path, release: str = RELEASE) -> Path:
-    """Baixa um tema do Overture no retângulo da grade para o cache (uma vez por release)."""
+def download(kind: str, cache_dir: Path, city: TerritoryCity, release: str = RELEASE) -> Path:
+    """Baixa um tema do Overture no retângulo da cidade para o cache (uma vez por release)."""
     from overturemaps import core  # noqa: PLC0415  (importa o pyfiglet/click só quando usado)
 
     cache_dir.mkdir(parents=True, exist_ok=True)
-    target = cache_dir / f"overture-{kind}-{release}.parquet"
+    # a cidade vai no nome: cada uma tem o seu retângulo
+    target = cache_dir / f"overture-{kind}-{city.ibge_code}-{release}.parquet"
+    bbox = city_bbox(city)
     if target.exists():
         log.info("  cache: %s (%.1f MB)", target.name, target.stat().st_size / 1e6)
         return target
@@ -79,7 +75,7 @@ def download(kind: str, cache_dir: Path, release: str = RELEASE) -> Path:
     for attempt in range(1, 5):
         try:
             started = time.perf_counter()
-            reader = core.record_batch_reader(kind, bbox=grid_bbox(), release=release, stac=True)
+            reader = core.record_batch_reader(kind, bbox=bbox, release=release, stac=True)
             if reader is None:
                 raise RuntimeError(f"Overture sem dados de {kind} no release {release}")
             rows = 0
@@ -149,8 +145,8 @@ class OvertureBuildingsSource:
         self._cache = cache_dir
         self._release = release
 
-    def fetch(self) -> Sequence[LayerData]:
-        path = download("building", self._cache, self._release)
+    def fetch(self, city: TerritoryCity) -> Sequence[LayerData]:
+        path = download("building", self._cache, city, self._release)
         buildings: list[Building] = []
         outcome: Counter[str] = Counter()
         columns = ("id", "sources", "is_underground", "height", "num_floors", "class", "geometry")
@@ -172,7 +168,7 @@ class OvertureBuildingsSource:
                 buildings=buildings,
                 meta={
                     "release": self._release,
-                    "bbox": list(grid_bbox()),
+                    "bbox": list(city_bbox(city)),
                     "min_area_m2": MIN_AREA_M2,
                     "discarded": {k: v for k, v in outcome.items() if k != "ok"},
                     "by_source": dict(by_source.most_common()),
@@ -251,8 +247,8 @@ class OverturePlacesSource:
         self._cache = cache_dir
         self._release = release
 
-    def fetch(self) -> Sequence[LayerData]:
-        path = download("place", self._cache, self._release)
+    def fetch(self, city: TerritoryCity) -> Sequence[LayerData]:
+        path = download("place", self._cache, city, self._release)
         places: list[Place] = []
         outcome: Counter[str] = Counter()
         # telefone, e-mail, site e redes sociais nem são lidos (spec, regras herdadas)
@@ -277,7 +273,7 @@ class OverturePlacesSource:
                 places=places,
                 meta={
                     "release": self._release,
-                    "bbox": list(grid_bbox()),
+                    "bbox": list(city_bbox(city)),
                     "min_confidence": MIN_PLACE_CONFIDENCE,
                     "discarded": {k: v for k, v in outcome.items() if k != "ok"},
                     "by_group": dict(by_group.most_common()),

@@ -7,7 +7,7 @@ from quantumco.entrypoints.api.app import create_app
 from quantumco.road_network.application.queries import GetCurrentNetwork
 from quantumco.syntax_analysis.application.queries import GetScenario, GetSyntaxMap
 
-from ..fakes import Identity, platform, territory
+from ..fakes import Identity, cities, platform, territory
 from ..support import METHODOLOGY_V1, MovableClock
 from .test_api import NetworkReader, ScenarioReader, SyntaxReader
 from .test_platform import sign_up
@@ -34,6 +34,7 @@ def setup() -> tuple[TestClient, Identity, MovableClock]:
         scenarios=GetScenario(ScenarioReader()),
         platform=platform(identity=ident, clock=clock),
         territory=territory(),
+        cities=cities(),
     )
     return TestClient(app), ident, clock
 

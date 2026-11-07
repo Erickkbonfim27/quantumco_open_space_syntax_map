@@ -1,6 +1,6 @@
 [project]
 name = "quantumco"
-version = "0.1.0"
+version = "1.0.6"
 description = "Mapa sintático (sintaxe espacial) aberto de Brusque-SC"
 requires-python = ">=3.13,<3.14"
 license = "AGPL-3.0-or-later"
@@ -24,6 +24,7 @@ dependencies = [
     "redis>=7.4,<9",
     "minio>=7.2,<8",
     "overturemaps>=2.0,<3",
+    "requests>=2.32",
 ]
 
 [project.scripts]
@@ -39,6 +40,7 @@ dev = [
     "types-PyYAML",
     "types-networkx",
     "types-shapely",
+    "types-requests>=2.33.0.20261030",
 ]
 
 [build-system]
@@ -96,6 +98,16 @@ modules = [
     "quantumco.identity",
     "quantumco.territory",
     "quantumco.datasets",
+    "quantumco.listings",
+]
+
+[[tool.importlinter.contracts]]
+name = "Imóveis à venda: camadas hexagonais"
+type = "layers"
+layers = [
+    "quantumco.listings.infrastructure",
+    "quantumco.listings.application",
+    "quantumco.listings.domain",
 ]
 
 [[tool.importlinter.contracts]]
@@ -165,6 +177,7 @@ forbidden_modules = [
     "quantumco.identity",
     "quantumco.territory",
     "quantumco.datasets",
+    "quantumco.listings",
     "quantumco.entrypoints",
     "quantumco.bootstrap",
 ]
@@ -186,12 +199,15 @@ source_modules = [
     "quantumco.territory.application",
     "quantumco.datasets.domain",
     "quantumco.datasets.application",
+    "quantumco.listings.domain",
+    "quantumco.listings.application",
 ]
 forbidden_modules = [
     "geopandas",
     "pyproj",
     "pyarrow",
     "httpx",
+    "requests",
     "typer",
     "yaml",
     "fastapi",

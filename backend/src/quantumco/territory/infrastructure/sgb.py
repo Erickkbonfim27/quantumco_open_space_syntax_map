@@ -14,6 +14,7 @@ from shapely.geometry import MultiPolygon, Polygon, mapping, shape
 from shapely.validation import make_valid
 
 from quantumco.territory.domain import profile
+from quantumco.territory.domain.city import TerritoryCity
 from quantumco.territory.domain.records import LayerData, Zone
 from quantumco.territory.infrastructure.download import get_json
 
@@ -29,7 +30,10 @@ SUSCEPTIBILITY_NAMES = {
 }
 
 
-def _params(type_name: str) -> dict[str, Any]:
+def _params(type_name: str, municipio: str, uf: str) -> dict[str, Any]:
+    # o WFS não tem o código IBGE: o filtro é pelo nome (como o SGB grava) e pela UF, e o
+    # resultado é conferido pelo retângulo do município (`_inside`)
+    name = municipio.replace("'", "''")
     return {
         "service": "WFS",
         "version": "2.0.0",
@@ -38,8 +42,11 @@ def _params(type_name: str) -> dict[str, Any]:
         "outputFormat": "application/json",
         "srsName": "EPSG:4326",
         "count": 10000,
-        "CQL_FILTER": "municipio='BRUSQUE' AND uf='SC'",
+        "CQL_FILTER": f"municipio='{name}' AND uf='{uf}'",
     }
+
+
+MARGIN_M = 2000.0  # folga do retângulo do município ao conferir as feições
 
 
 def _polygonal(geometry: Mapping[str, Any]) -> MultiPolygon | None:
@@ -47,6 +54,14 @@ def _polygonal(geometry: Mapping[str, Any]) -> MultiPolygon | None:
     parts = [g for g in getattr(geom, "geoms", [geom]) if isinstance(g, Polygon | MultiPolygon)]
     polys = [p for g in parts for p in (g.geoms if isinstance(g, MultiPolygon) else [g])]
     return MultiPolygon(polys) if polys else None
+
+
+def _inside(geometry: Mapping[str, Any], city: TerritoryCity) -> bool:
+    try:
+        point = shape(dict(geometry)).representative_point()
+    except (ValueError, TypeError, AttributeError):
+        return False
+    return city.contains(point.x, point.y, MARGIN_M)
 
 
 def _int(value: object) -> int | None:
@@ -59,21 +74,33 @@ def _int(value: object) -> int | None:
 class SgbSource:
     name = "sgb-risco"
 
-    def fetch(self) -> Sequence[LayerData]:
-        layers = [self._risk()]
+    def fetch(self, city: TerritoryCity) -> Sequence[LayerData]:
+        layers = [self._risk(city)]
         for type_name, label in SUSCEPTIBILITY_NAMES.items():
-            layers.append(self._susceptibility(type_name, label))
+            layers.append(self._susceptibility(city, type_name, label))
         return layers
 
-    def _features(self, type_name: str) -> list[Mapping[str, Any]]:
-        data = get_json(WFS, params=_params(type_name))
-        features = list(data.get("features") or [])
-        log.info("  %s: %d feições", type_name, len(features))
-        return features
+    def _features(self, city: TerritoryCity, type_name: str) -> list[Mapping[str, Any]]:
+        features: list[Mapping[str, Any]] = []
+        names = dict.fromkeys([city.upper_name(), city.upper_name(accents=False)])
+        for name in names:  # com acento; se nada vier, sem acento
+            data = get_json(WFS, params=_params(type_name, name, city.uf))
+            features = list(data.get("features") or [])
+            if features:
+                break
+        inside = [f for f in features if _inside(f.get("geometry") or {}, city)]
+        log.info(
+            "  %s: %d feições (%d fora do retângulo de %s descartadas)",
+            type_name,
+            len(inside),
+            len(features) - len(inside),
+            city.label,
+        )
+        return inside
 
-    def _risk(self) -> LayerData:
+    def _risk(self, city: TerritoryCity) -> LayerData:
         zones: list[Zone] = []
-        for f in self._features("risco_geologico"):
+        for f in self._features(city, "risco_geologico"):
             p, geom = f.get("properties") or {}, _polygonal(f.get("geometry") or {})
             if geom is None:
                 continue
@@ -102,9 +129,9 @@ class SgbSource:
             zones=zones,
         )
 
-    def _susceptibility(self, type_name: str, label: str) -> LayerData:
+    def _susceptibility(self, city: TerritoryCity, type_name: str, label: str) -> LayerData:
         zones = []
-        for f in self._features(type_name):
+        for f in self._features(city, type_name):
             p, geom = f.get("properties") or {}, _polygonal(f.get("geometry") or {})
             if geom is None:
                 continue

@@ -8,7 +8,7 @@ from quantumco.road_network.application.queries import GetCurrentNetwork
 from quantumco.scenarios.domain.run import RunQuota
 from quantumco.syntax_analysis.application.queries import GetScenario, GetSyntaxMap
 
-from ..fakes import Queue, platform, territory
+from ..fakes import Queue, cities, platform, territory
 from ..support import METHODOLOGY_V1
 from .test_api import NetworkReader, ScenarioReader, SyntaxReader
 from .test_platform import sign_up
@@ -27,6 +27,7 @@ def client(queue: Queue | None = None, quota: RunQuota | None = None) -> TestCli
         scenarios=GetScenario(ScenarioReader()),
         platform=platform(queue=queue, quota=quota),
         territory=territory(),
+        cities=cities(),
     )
     return TestClient(app)
 

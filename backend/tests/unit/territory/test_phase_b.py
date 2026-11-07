@@ -95,21 +95,21 @@ def test_raster_image_must_be_png_with_ordered_bounds() -> None:
 def test_low_zoom_building_tiles_are_empty_without_touching_the_reader() -> None:
     reader = TerritoryReader()
     query = GetPolygonProfile(reader)
-    assert query.building_tile(BUILDING_MIN_ZOOM - 1, 0, 0) == b""
+    assert query.building_tile("4202909", BUILDING_MIN_ZOOM - 1, 0, 0) == b""
     assert reader.tiles == []
-    assert query.building_tile(14, 6000, 9000) == b"\x1a\x02mvt"
+    assert query.building_tile("4202909", 14, 6000, 9000) == b"\x1a\x02mvt"
     assert reader.tiles == [(14, 6000, 9000)]
 
 
 @pytest.mark.parametrize(("z", "x", "y"), [(-1, 0, 0), (23, 0, 0), (14, 16384, 0), (14, 0, -1)])
 def test_invalid_tiles_are_rejected(z: int, x: int, y: int) -> None:
     with pytest.raises(InvalidTileError):
-        GetPolygonProfile(TerritoryReader()).building_tile(z, x, y)
+        GetPolygonProfile(TerritoryReader()).building_tile("4202909", z, x, y)
 
 
 def test_image_layer_names_are_validated() -> None:
     query = GetPolygonProfile(TerritoryReader())
-    assert query.image("declividade") == TINY_PNG
-    assert query.image("ndvi") is None
+    assert query.image("4202909", "declividade") == TINY_PNG
+    assert query.image("4202909", "ndvi") is None
     with pytest.raises(UnknownLayerError):
-        query.image("../segredo")
+        query.image("4202909", "../segredo")

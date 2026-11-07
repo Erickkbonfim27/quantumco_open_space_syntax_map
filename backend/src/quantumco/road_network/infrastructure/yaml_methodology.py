@@ -6,7 +6,6 @@ from typing import Any
 import yaml
 
 from quantumco.road_network.domain.highway_filter import HighwayFilter
-from quantumco.road_network.domain.study_area import StudyArea
 
 
 class YamlMethodology:
@@ -25,14 +24,9 @@ class YamlMethodology:
     def version(self) -> str:
         return (self._root / "VERSION").read_text(encoding="utf-8").strip()
 
-    def study_area(self) -> StudyArea:
-        data = self._load("study_area.yaml")
-        return StudyArea(
-            ibge_code=str(data["ibge_code"]),
-            osm_relation_id=int(data["osm_relation_id"]),
-            buffer_m=float(data["buffer_m"]),
-            crs_epsg=int(data["crs_epsg"]),
-        )
+    def buffer_m(self) -> float:
+        """Faixa externa da área de estudo (o município sai do cadastro de cidades)."""
+        return float(self._load("study_area.yaml")["buffer_m"])
 
     def highway_filter(self) -> HighwayFilter:
         data = self._load("highway_filter.yaml")

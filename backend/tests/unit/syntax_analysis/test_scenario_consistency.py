@@ -69,6 +69,7 @@ class LocalEngine:
         pieces: Sequence[Piece],
         distances_m: Sequence[int],
         live: Sequence[bool] | None = None,
+        crs_epsg: int | None = None,
     ) -> EngineRun:
         by_distance: dict[int, RawMeasures] = {}
         for distance in distances_m:
@@ -80,8 +81,8 @@ class LocalEngine:
 
 
 class Network:
-    def latest(self) -> AnalysisInput:
-        return AnalysisInput("snapshot-1", "snapshot-1", LINKS)
+    def latest(self, ibge_code: str) -> AnalysisInput:
+        return AnalysisInput("snapshot-1", "snapshot-1", LINKS, ibge_code, 31982)
 
 
 class Analyses:
@@ -97,7 +98,8 @@ class Base:
     def __init__(self, base: BaseAnalysis) -> None:
         self._base = base
 
-    def current(self) -> BaseAnalysis:
+    def current(self, ibge_code: str) -> BaseAnalysis:
+        assert ibge_code == self._base.ibge_code
         return self._base
 
 
@@ -115,27 +117,28 @@ class Scenarios:
 
 def published_analysis() -> AnalysisResult:
     analyses = Analyses()
-    RunAnalysis(Network(), LocalEngine(), analyses, CONFIG, FixedClock())()
+    RunAnalysis(Network(), LocalEngine(), analyses, CONFIG, FixedClock())("4208302")
     assert analyses.saved is not None
     return analyses.saved
 
 
 def test_scenario_matches_the_published_analysis_on_untouched_links() -> None:
     official = published_analysis()
+    assert (official.ibge_code, official.manifest["crs_epsg"]) == ("4208302", 31982)
     measures = {k: v for k, v in official.columns.items() if k.startswith(("nain_", "nach_"))}
     # o teste só vale se há trecho com e sem valor, senão não exercita o caso indefinido
     assert np.isnan(measures["nain_400"]).any()
     assert (~np.isnan(measures["nain_400"])).any()
 
     scenarios = Scenarios()
-    base = BaseAnalysis("base-1", "snapshot-1", LINKS, measures)
+    base = BaseAnalysis("base-1", "snapshot-1", LINKS, measures, "4208302", 31982)
     RunScenario(
         base=Base(base),
         analyzer=LocalEngine(),
         repository=scenarios,
         config=CONFIG,
         clock=FixedClock(),
-    )("sem-o-trecho-d", [RemoveLink("d")])
+    )("sem-o-trecho-d", [RemoveLink("d")], ibge_code="4208302")
 
     assert scenarios.saved is not None
     rows: Mapping[str, Mapping[str, Any]] = dict(scenarios.saved.rows)

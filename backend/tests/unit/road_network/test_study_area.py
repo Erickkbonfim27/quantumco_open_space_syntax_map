@@ -6,11 +6,9 @@ from quantumco.road_network.domain.study_area import InvalidStudyAreaError, Stud
 from quantumco.road_network.infrastructure.yaml_methodology import YamlMethodology
 
 
-def test_methodology_v1_selects_brusque_sc_by_code(methodology: YamlMethodology) -> None:
-    area = methodology.study_area()
-    assert area == StudyArea(
-        ibge_code="4202909", osm_relation_id=296588, buffer_m=7000.0, crs_epsg=31982
-    )
+def test_methodology_v1_sets_the_buffer_for_every_city(methodology: YamlMethodology) -> None:
+    # o município saiu da metodologia (cadastro de cidades); a regra da faixa ficou
+    assert methodology.buffer_m() == 7000.0
 
 
 @pytest.mark.parametrize(

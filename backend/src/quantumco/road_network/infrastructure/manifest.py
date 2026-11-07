@@ -7,7 +7,9 @@ from quantumco.road_network.domain.snapshot import NetworkSnapshot
 
 
 def snapshot_name(snapshot: NetworkSnapshot) -> str:
-    return f"snapshot-{snapshot.osm_base_timestamp:%Y%m%dT%H%M%SZ}"
+    """Único no banco: duas cidades podem sair do mesmo carimbo do Overpass."""
+    stamp = f"{snapshot.osm_base_timestamp:%Y%m%dT%H%M%SZ}"
+    return f"snapshot-{snapshot.study_area.ibge_code}-{stamp}"
 
 
 def build_manifest(snapshot: NetworkSnapshot, methodology_version: str) -> dict[str, Any]:

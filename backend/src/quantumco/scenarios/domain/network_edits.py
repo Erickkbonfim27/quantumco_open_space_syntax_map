@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from quantumco.scenarios.domain.common import BOUNDS, InvalidWorkspaceError
+from quantumco.scenarios.domain.common import CityArea, InvalidWorkspaceError, check_in_brazil
 
 MAX_EDITS = 200
 MAX_LINE_VERTICES = 500
@@ -59,9 +59,7 @@ class NetworkEdit:
             raise InvalidWorkspaceError("A via precisa de pelo menos 2 pontos.")
         if len(coords) > MAX_LINE_VERTICES:
             raise InvalidWorkspaceError(f"No máximo {MAX_LINE_VERTICES} pontos por via.")
-        west, south, east, north = BOUNDS
-        if not all(west <= x <= east and south <= y <= north for x, y in coords):
-            raise InvalidWorkspaceError("A via precisa estar em Brusque ou no entorno.")
+        check_in_brazil(coords)
         (x0, y0), (x1, y1) = coords[0], coords[-1]
         if abs(x1 - x0) + abs(y1 - y0) < MIN_LINE_LENGTH_DEG and len(coords) == 2:
             raise InvalidWorkspaceError("A via é curta demais.")
@@ -105,10 +103,15 @@ class NetworkEdit:
         )
 
 
-def check_edits(edits: Sequence[NetworkEdit]) -> None:
-    """Regras do conjunto: limite e no máximo uma alteração por via existente."""
+def check_edits(edits: Sequence[NetworkEdit], area: CityArea | None = None) -> None:
+    """Regras do conjunto: limite, traçados dentro da cidade (se `area`) e no máximo uma
+    alteração por via existente."""
     if len(edits) > MAX_EDITS:
         raise InvalidWorkspaceError(f"No máximo {MAX_EDITS} edições por cenário.")
+    if area is not None:
+        for edit in edits:
+            if edit.coords is not None:
+                area.check(edit.coords, "A via")
     seen: set[str] = set()
     for edit in edits:
         link = edit.removes

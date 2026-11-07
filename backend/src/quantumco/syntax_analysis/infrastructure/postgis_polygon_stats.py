@@ -15,7 +15,6 @@ from typing import Any
 from psycopg import errors
 from psycopg_pool import ConnectionPool
 
-SRID = 31982
 CLASSES = 7
 
 _QUERY = """
@@ -23,7 +22,8 @@ with poly as (
     select ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(%(geojson)s), 4326), %(srid)s) g
 ),
 analysis as (
-    select analysis_id, snapshot_id from syntax_analysis.analyses where is_current
+    select analysis_id, snapshot_id from syntax_analysis.analyses
+    where is_current and ibge_code = %(city)s
 )
 select ST_Length(ST_Intersection(l.geom, poly.g)) as clipped_m, m.measures
 from poly, analysis
@@ -45,20 +45,26 @@ class PostgisPolygonStats:
     def __init__(self, pool: ConnectionPool) -> None:
         self._pool = pool
 
-    def stats(self, ring: list[tuple[float, float]]) -> Mapping[str, Any] | None:
+    def stats(self, ibge_code: str, ring: list[tuple[float, float]]) -> Mapping[str, Any] | None:
         closed = ring if ring[0] == ring[-1] else [*ring, ring[0]]
-        params = {"geojson": json.dumps({"type": "Polygon", "coordinates": [closed]}), "srid": SRID}
         with self._pool.connection() as conn:
             try:
-                if (
-                    conn.execute(
-                        "select 1 from syntax_analysis.analyses where is_current"
-                    ).fetchone()
-                    is None
-                ):
-                    return None
+                # o CRS métrico é o do snapshot que a análise atual da cidade usou
+                current = conn.execute(
+                    "select ST_SRID(s.municipality) from syntax_analysis.analyses a "
+                    "join road_network.snapshots s on s.snapshot_id = a.snapshot_id "
+                    "where a.is_current and a.ibge_code = %s",
+                    (ibge_code,),
+                ).fetchone()
             except errors.UndefinedTable:
                 return None
+            if current is None:
+                return None
+            params = {
+                "geojson": json.dumps({"type": "Polygon", "coordinates": [closed]}),
+                "srid": int(current[0]),
+                "city": ibge_code,
+            }
             area_m2, perimeter_m = conn.execute(_SHAPE, params).fetchone()  # type: ignore[misc]
             rows = conn.execute(_QUERY, params).fetchall()
 

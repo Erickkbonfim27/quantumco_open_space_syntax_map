@@ -1,4 +1,7 @@
-"""Adaptador `SnapshotRepository` no PostGIS: grava e publica o snapshot numa transação só."""
+"""Adaptador `SnapshotRepository` no PostGIS: grava e publica o snapshot numa transação só.
+
+Publicar troca só o snapshot atual DA MESMA CIDADE; as outras cidades não mudam.
+"""
 
 from __future__ import annotations
 
@@ -26,17 +29,19 @@ class PostgisSnapshotRepository:
 
     def save(self, snapshot: NetworkSnapshot, methodology_version: str) -> str:
         srid = snapshot.study_area.crs_epsg
+        city = snapshot.study_area.ibge_code
         sid = snapshot.snapshot_id.value
         rows = [(link, False) for link in snapshot.links] + [
             (link, True) for link in snapshot.excluded_links
         ]
         with connect(self._url) as conn, conn.transaction():
             conn.execute(
-                "insert into road_network.snapshots (snapshot_id, name, osm_base_timestamp, "
-                "created_at, methodology_version, filter_version, manifest, municipality) "
-                "values (%s, %s, %s, %s, %s, %s, %s, ST_GeomFromWKB(%s, %s))",
+                "insert into road_network.snapshots (snapshot_id, ibge_code, name, "
+                "osm_base_timestamp, created_at, methodology_version, filter_version, manifest, "
+                "municipality) values (%s, %s, %s, %s, %s, %s, %s, %s, ST_GeomFromWKB(%s, %s))",
                 (
                     sid,
+                    city,
                     snapshot_name(snapshot),
                     snapshot.osm_base_timestamp,
                     snapshot.created_at,
@@ -67,8 +72,12 @@ class PostgisSnapshotRepository:
                             shapely.to_wkb(geom, hex=True, include_srid=True),
                         )
                     )
-            # publicação atômica: só agora o snapshot vira o atual
-            conn.execute("update road_network.snapshots set is_current = false where is_current")
+            # publicação atômica: só agora o snapshot vira o atual da cidade
+            conn.execute(
+                "update road_network.snapshots set is_current = false "
+                "where is_current and ibge_code = %s",
+                (city,),
+            )
             conn.execute(
                 "update road_network.snapshots set is_current = true where snapshot_id = %s",
                 (sid,),

@@ -98,6 +98,7 @@ class ScenarioRuns:
         run = ScenarioRun.request(
             workspace_id=workspace_id,
             owner_id=owner_id,
+            ibge_code=workspace.ibge_code,
             edits=tuple(workspace.edits),
             now=now,
             radii=chosen,
@@ -154,7 +155,7 @@ class ScenarioRuns:
             running=counts.running_total,
             workers=workers,
             expected_engine_s=(
-                self._runs.expected_engine_seconds(run.radii) if run.active else None
+                self._runs.expected_engine_seconds(run.ibge_code, run.radii) if run.active else None
             ),
         )
 
@@ -205,7 +206,7 @@ class ExecuteRun:
 
         name = result_name(run.workspace_id)
         try:
-            outcome = self._engine.run(name, run.edits, on_stage, run.radii)
+            outcome = self._engine.run(name, run.ibge_code, run.edits, on_stage, run.radii)
         except _RunGoneError:
             log.info("cálculo %s: cenário apagado durante o cálculo; abandonado", run_id)
             self._engine.forget(name)

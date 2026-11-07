@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, Protocol
 from uuid import UUID
 
+from quantumco.scenarios.domain.common import CityArea
 from quantumco.scenarios.domain.network_edits import NetworkEdit
 from quantumco.scenarios.domain.run import ScenarioRun
 from quantumco.scenarios.domain.workspace import Workspace
@@ -48,8 +49,8 @@ class RunRepository(Protocol):
         """Posição na fila (1 = o próximo a começar)."""
         ...
 
-    def expected_engine_seconds(self, radii: Sequence[str]) -> float | None:
-        """Média do tempo do motor nos últimos cálculos concluídos com os mesmos raios."""
+    def expected_engine_seconds(self, ibge_code: str, radii: Sequence[str]) -> float | None:
+        """Média do tempo do motor nos últimos cálculos concluídos da cidade, mesmos raios."""
         ...
 
     def queued_ids(self) -> list[UUID]: ...
@@ -75,12 +76,19 @@ class EditRejectedError(Exception):
     """O motor recusou as edições (ex.: ponta longe demais da rede). Mensagem para o usuário."""
 
 
+class CityAreas(Protocol):
+    """Cidades onde se pode criar cenário (publicadas), com a área de desenho de cada uma."""
+
+    def area(self, ibge_code: str) -> CityArea | None: ...
+
+
 class ScenarioEngine(Protocol):
     """Recálculo com as edições nos raios pedidos (implementado pela Análise Sintática)."""
 
     def run(
         self,
         name: str,
+        ibge_code: str,
         edits: Sequence[NetworkEdit],
         on_stage: Callable[[str], None],
         radii: Sequence[str],

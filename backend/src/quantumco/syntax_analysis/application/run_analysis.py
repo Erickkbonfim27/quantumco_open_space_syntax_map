@@ -43,12 +43,14 @@ class RunAnalysis:
         self._config = config
         self._clock = clock
 
-    def __call__(self) -> tuple[AnalysisResult, str]:
+    def __call__(self, ibge_code: str) -> tuple[AnalysisResult, str]:
         started = time.perf_counter()
         cfg = self._config
-        network = self._source.latest()
+        network = self._source.latest(ibge_code)
         if network is None:
-            raise NoSnapshotForAnalysisError("nenhum snapshot; rode `quantumco snapshot build`")
+            raise NoSnapshotForAnalysisError(
+                f"a cidade {ibge_code} não tem snapshot; rode `quantumco snapshot build`"
+            )
         log.info("[1/4] snapshot %s: %d trechos", network.snapshot_name, len(network.links))
 
         pieces = explode(network.links, cfg.simplification_m)
@@ -61,7 +63,7 @@ class RunAnalysis:
         distances = [r.distance_m(cfg.radius_n_m) for r in cfg.radii]
         log.info("[3/4] análise angular (%s) nos raios %s…", "motor", [r.key for r in cfg.radii])
         t_engine = time.perf_counter()
-        run = self._analyzer.analyze(pieces, distances)
+        run = self._analyzer.analyze(pieces, distances, crs_epsg=network.crs_epsg)
         engine_s = time.perf_counter() - t_engine
         log.info(
             "[3/4] %s %s: ok em %.1fs (%d nós no grafo, %d retas sem valor)",
@@ -103,6 +105,8 @@ class RunAnalysis:
                 }
 
         manifest = {
+            "ibge_code": network.ibge_code,
+            "crs_epsg": network.crs_epsg,
             "snapshot_id": network.snapshot_id,
             "snapshot_name": network.snapshot_name,
             "methodology_version": cfg.methodology_version,
@@ -127,6 +131,7 @@ class RunAnalysis:
             link_ids=tuple(link.link_id for link in network.links),
             columns=columns,
             manifest=manifest,
+            ibge_code=network.ibge_code,
         )
         location = self._repository.save(result)
         log.info("análise concluída em %.1fs → %s", time.perf_counter() - started, location)

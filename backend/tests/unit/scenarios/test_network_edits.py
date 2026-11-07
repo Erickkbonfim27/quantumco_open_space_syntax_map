@@ -3,11 +3,14 @@ from __future__ import annotations
 import pytest
 
 from quantumco.bootstrap.scenario_runs import to_analysis_edits
+from quantumco.scenarios.domain.common import CityArea
 from quantumco.scenarios.domain.network_edits import EditKind, NetworkEdit, check_edits
 from quantumco.scenarios.domain.workspace import InvalidWorkspaceError
 from quantumco.syntax_analysis.domain.edits import AddStreet, RemoveLink
 
-LINE = ((-48.92, -27.10), (-48.915, -27.095))
+LINE = ((-48.92, -27.10), (-48.915, -27.095))  # Brusque
+BRUSQUE = CityArea("4202909", "Brusque", (-49.12, -27.33, -48.70, -26.93))
+ITAPEMA = CityArea("4208302", "Itapema", (-48.76, -27.22, -48.51, -26.98))
 
 
 def test_kinds_need_the_right_fields() -> None:
@@ -20,8 +23,15 @@ def test_kinds_need_the_right_fields() -> None:
         NetworkEdit(EditKind.ADD, coords=(LINE[0],))
     with pytest.raises(InvalidWorkspaceError, match="não leva traçado"):
         NetworkEdit(EditKind.REMOVE, link_id="1", coords=LINE)
-    with pytest.raises(InvalidWorkspaceError, match="Brusque"):
-        NetworkEdit(EditKind.ADD, coords=((-50.0, -27.1), (-48.9, -27.1)))
+    with pytest.raises(InvalidWorkspaceError, match="fora do Brasil"):
+        NetworkEdit(EditKind.ADD, coords=((10.0, 45.0), (10.1, 45.0)))
+
+
+def test_lines_must_be_in_the_workspace_city() -> None:
+    edits = [NetworkEdit(EditKind.ADD, coords=LINE), NetworkEdit(EditKind.REMOVE, link_id="9")]
+    check_edits(edits, BRUSQUE)
+    with pytest.raises(InvalidWorkspaceError, match="Itapema ou no entorno"):
+        check_edits(edits, ITAPEMA)
 
 
 def test_json_round_trip_and_unknown_type() -> None:
@@ -49,7 +59,8 @@ def test_translation_to_the_analysis() -> None:
             NetworkEdit(EditKind.CLOSE, link_id="2"),
             NetworkEdit(EditKind.REROUTE, link_id="3", coords=LINE),
             NetworkEdit(EditKind.ADD, coords=LINE),
-        ]
+        ],
+        31982,
     )
     assert edits[:3] == [RemoveLink("1"), RemoveLink("2", closed=True), RemoveLink("3")]
     assert isinstance(edits[3], AddStreet)

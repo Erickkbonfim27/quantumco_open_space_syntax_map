@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from pyproj import Transformer
 from shapely import to_wkb
 from shapely.geometry import LineString, Point, Polygon
 
-from quantumco.territory.domain.grid import BRUSQUE_GRID
+from quantumco.territory.domain.city import TerritoryCity
 from quantumco.territory.infrastructure.overture import (
-    grid_bbox,
+    city_bbox,
     normalize_building,
     normalize_place,
 )
@@ -108,7 +109,7 @@ def test_importing_the_cli_does_not_open_proj() -> None:
     code = (
         "import quantumco.entrypoints.cli.main\n"
         "from quantumco.territory.infrastructure import overture as o\n"
-        "print(o._to_utm.cache_info().currsize + o._to_wgs84.cache_info().currsize)"
+        "print(o._to_utm.cache_info().currsize)"
     )
     out = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=120
@@ -116,11 +117,11 @@ def test_importing_the_cli_does_not_open_proj() -> None:
     assert out.stdout.strip() == "0"
 
 
-def test_grid_bbox_contains_every_grid_corner() -> None:
-    west, south, east, north = grid_bbox()
-    g = BRUSQUE_GRID
-    for x in (g.west, g.east):
-        for y in (g.south, g.north):
-            lon, lat = TO_WGS84.transform(x, y)
-            assert west <= lon <= east
-            assert south <= lat <= north
+def test_city_bbox_is_the_municipality_with_the_grid_margin() -> None:
+    itapema = TerritoryCity("4208302", "Itapema", "SC", (-48.690, -27.151, -48.584, -27.048))
+    west, south, east, north = city_bbox(itapema)
+    # 1 km ≈ 0,009° de latitude e ≈ 0,010° de longitude nessa latitude
+    assert south == pytest.approx(-27.151 - 0.009, abs=1e-3)
+    assert north == pytest.approx(-27.048 + 0.009, abs=1e-3)
+    assert west == pytest.approx(-48.690 - 0.0101, abs=1e-3)
+    assert east == pytest.approx(-48.584 + 0.0101, abs=1e-3)
